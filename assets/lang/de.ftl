@@ -20,3 +20,5 @@ buffer-tool-tip = Puffer
 not-gate-tool-tip = NOT-Gatter
 
 properties-header = Eigenschaften
+bit-width-property-name = Bit-Breite:
+reset-to-default-action = Auf Standard zurücksetzen

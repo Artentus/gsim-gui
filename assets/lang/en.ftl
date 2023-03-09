@@ -20,3 +20,5 @@ buffer-tool-tip = Buffer
 not-gate-tool-tip = NOT-Gate
 
 properties-header = Properties
+bit-width-property-name = Bit-width:
+reset-to-default-action = Reset to default

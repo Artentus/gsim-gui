@@ -1,6 +1,5 @@
 use egui::*;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 
 #[macro_use]
 mod theme;
@@ -8,6 +7,15 @@ use theme::*;
 
 mod locale;
 use locale::*;
+
+mod component;
+use component::*;
+
+mod circuit;
+use circuit::*;
+
+mod viewport;
+use viewport::*;
 
 #[inline]
 fn show_themed_image_button(
@@ -39,6 +47,7 @@ pub struct App {
     state: AppState,
     locale_manager: LocaleManager,
     next_visuals: Option<Visuals>,
+
     theme_image: ThemedImage,
     and_gate_image: ThemedImage,
     nand_gate_image: ThemedImage,
@@ -48,6 +57,11 @@ pub struct App {
     xnor_gate_image: ThemedImage,
     not_gate_image: ThemedImage,
     buffer_image: ThemedImage,
+
+    viewport: Option<Viewport>,
+
+    circuits: Vec<Circuit>,
+    selected_circuit: Option<usize>,
 }
 
 impl App {
@@ -66,6 +80,7 @@ impl App {
             state,
             locale_manager: LocaleManager::init(),
             next_visuals: None,
+
             theme_image: themed_image!(SwitchTheme.svg),
             and_gate_image: themed_image!(AndGate.svg),
             nand_gate_image: themed_image!(NandGate.svg),
@@ -75,12 +90,12 @@ impl App {
             xnor_gate_image: themed_image!(XnorGate.svg),
             not_gate_image: themed_image!(NotGate.svg),
             buffer_image: themed_image!(Buffer.svg),
-        }
-    }
 
-    #[inline]
-    fn get_localized<'a>(&'a self, key: &'static str) -> Cow<'a, str> {
-        self.locale_manager.get(&self.state.lang, key)
+            viewport: None,
+
+            circuits: vec![],
+            selected_circuit: None,
+        }
     }
 }
 
@@ -89,32 +104,47 @@ impl eframe::App for App {
         eframe::set_value(storage, eframe::APP_KEY, &self.state);
     }
 
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         if let Some(visuals) = self.next_visuals.take() {
             ctx.set_visuals(visuals);
         }
 
         TopBottomPanel::top("main_menu").show(ctx, |ui| {
             menu::bar(ui, |ui| {
-                ui.menu_button(self.get_localized("file-menu-item"), |ui| {
-                    if ui.button(self.get_localized("new-menu-item")).clicked() {}
+                ui.menu_button(
+                    self.locale_manager.get(&self.state.lang, "file-menu-item"),
+                    |ui| {
+                        if ui
+                            .button(self.locale_manager.get(&self.state.lang, "new-menu-item"))
+                            .clicked()
+                        {
+                            self.selected_circuit = Some(self.circuits.len());
+                            self.circuits.push(Circuit::new());
+                        }
 
-                    if ui.button(self.get_localized("open-menu-item")).clicked() {}
-                });
+                        if ui
+                            .button(self.locale_manager.get(&self.state.lang, "open-menu-item"))
+                            .clicked()
+                        {}
+                    },
+                );
 
-                let lang_item_title = self.get_localized("language-menu-item").into_owned();
-                ui.menu_button(lang_item_title, |ui| {
-                    for lang in self.locale_manager.langs() {
-                        let english_name = self.locale_manager.get(lang, "english-lang-name");
-                        let native_name = self.locale_manager.get(lang, "native-lang-name");
+                ui.menu_button(
+                    self.locale_manager
+                        .get(&self.state.lang, "language-menu-item"),
+                    |ui| {
+                        for lang in self.locale_manager.langs() {
+                            let english_name = self.locale_manager.get(lang, "english-lang-name");
+                            let native_name = self.locale_manager.get(lang, "native-lang-name");
 
-                        ui.radio_value(
-                            &mut self.state.lang,
-                            lang.clone(),
-                            format!("{native_name} ({english_name})"),
-                        );
-                    }
-                });
+                            ui.radio_value(
+                                &mut self.state.lang,
+                                lang.clone(),
+                                format!("{native_name} ({english_name})"),
+                            );
+                        }
+                    },
+                );
             });
         });
 
@@ -122,8 +152,12 @@ impl eframe::App for App {
             menu::bar(ui, |ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let target_theme_name = match self.state.theme {
-                        Theme::Light => self.get_localized("dark-theme-name"),
-                        Theme::Dark => self.get_localized("light-theme-name"),
+                        Theme::Light => {
+                            self.locale_manager.get(&self.state.lang, "dark-theme-name")
+                        }
+                        Theme::Dark => self
+                            .locale_manager
+                            .get(&self.state.lang, "light-theme-name"),
                     };
 
                     if show_themed_image_button(&self.theme_image, ctx, self.state.theme, ui)
@@ -146,65 +180,134 @@ impl eframe::App for App {
         });
 
         SidePanel::left("component_picker").show(ctx, |ui| {
-            ui.heading(self.get_localized("logic-header"));
+            ui.heading(self.locale_manager.get(&self.state.lang, "logic-header"));
 
             ui.horizontal(|ui| {
                 if show_themed_image_button(&self.and_gate_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("and-gate-tool-tip"))
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "and-gate-tool-tip"),
+                    )
                     .clicked()
-                {}
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit]
+                            .add_component(ComponentKind::AndGate { width: 1 });
+                    }
+                }
 
                 if show_themed_image_button(&self.nand_gate_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("nand-gate-tool-tip"))
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "nand-gate-tool-tip"),
+                    )
                     .clicked()
                 {}
             });
 
             ui.horizontal(|ui| {
                 if show_themed_image_button(&self.or_gate_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("or-gate-tool-tip"))
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "or-gate-tool-tip"),
+                    )
                     .clicked()
                 {}
 
                 if show_themed_image_button(&self.nor_gate_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("nor-gate-tool-tip"))
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "nor-gate-tool-tip"),
+                    )
                     .clicked()
                 {}
             });
 
             ui.horizontal(|ui| {
                 if show_themed_image_button(&self.xor_gate_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("xor-gate-tool-tip"))
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "xor-gate-tool-tip"),
+                    )
                     .clicked()
                 {}
 
                 if show_themed_image_button(&self.xnor_gate_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("xnor-gate-tool-tip"))
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "xnor-gate-tool-tip"),
+                    )
                     .clicked()
                 {}
             });
 
             ui.horizontal(|ui| {
                 if show_themed_image_button(&self.buffer_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("buffer-tool-tip"))
+                    .on_hover_text(self.locale_manager.get(&self.state.lang, "buffer-tool-tip"))
                     .clicked()
                 {}
 
                 if show_themed_image_button(&self.not_gate_image, ctx, self.state.theme, ui)
-                    .on_hover_text(self.get_localized("not-gate-tool-tip"))
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "not-gate-tool-tip"),
+                    )
                     .clicked()
                 {}
             });
         });
 
         SidePanel::right("property_view").show(ctx, |ui| {
-            ui.heading(self.get_localized("properties-header"));
+            if let Some(selected_circuit) = self.selected_circuit {
+                self.circuits[selected_circuit].update_component_properties(
+                    ui,
+                    &self.locale_manager,
+                    &self.state.lang,
+                );
+            }
 
             ui.with_layout(Layout::bottom_up(Align::RIGHT), |ui| {
                 warn_if_debug_build(ui);
             })
         });
 
-        CentralPanel::default().show(ctx, |ui| {});
+        TopBottomPanel::top("tab_headers").show(ctx, |ui| {
+            for (i, circuit) in self.circuits.iter().enumerate() {
+                let mut selected = self.selected_circuit.map(|sc| i == sc).unwrap_or(false);
+
+                ui.toggle_value(&mut selected, circuit.name());
+
+                if selected {
+                    self.selected_circuit = Some(i);
+                }
+            }
+        });
+
+        CentralPanel::default().show(ctx, |ui| {
+            let render_state = frame.wgpu_render_state().unwrap();
+
+            let viewport_size = ui.available_size();
+            let viewport_width = viewport_size.x.max(1.0) as u32;
+            let viewport_height = viewport_size.y.max(1.0) as u32;
+
+            let viewport = if let Some(viewport) = self.viewport.as_mut() {
+                viewport.resize(render_state, viewport_width, viewport_height);
+                viewport
+            } else {
+                let viewport = Viewport::create(render_state, viewport_width, viewport_height);
+                self.viewport = Some(viewport);
+                self.viewport.as_mut().unwrap()
+            };
+
+            viewport.draw(
+                render_state,
+                self.selected_circuit.map(|i| &self.circuits[i]),
+            );
+
+            ui.image(
+                viewport.texture_id(),
+                Vec2::new(viewport_width as f32, viewport_height as f32),
+            );
+        });
     }
 }
