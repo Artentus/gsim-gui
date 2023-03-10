@@ -283,6 +283,16 @@ impl eframe::App for App {
             }
         });
 
+        TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let zoom = self
+                    .selected_circuit
+                    .map(|i| self.circuits[i].zoom())
+                    .unwrap_or(1.0);
+                ui.label(format!("{:.0}%", zoom * 100.0));
+            });
+        });
+
         CentralPanel::default().show(ctx, |ui| {
             let render_state = frame.wgpu_render_state().unwrap();
             let selected_circuit = self.selected_circuit.map(|i| &mut self.circuits[i]);
@@ -310,8 +320,9 @@ impl eframe::App for App {
             .ui(ui);
 
             if let Some(circuit) = selected_circuit {
-                let zoom_delta = ui.input(|state| state.scroll_delta.y) / 240.0;
-                circuit.set_zoom(circuit.zoom() + (circuit.zoom() * zoom_delta));
+                const ZOOM_LEVELS: f32 = 10.0;
+                let zoom_delta = ui.input(|state| state.scroll_delta.y) / 120.0;
+                circuit.set_linear_zoom(circuit.linear_zoom() + (zoom_delta / ZOOM_LEVELS));
 
                 if response.dragged()
                     && ui.input(|state| state.pointer.button_down(PointerButton::Middle))

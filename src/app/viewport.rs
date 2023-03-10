@@ -136,7 +136,7 @@ impl<T: Pod> DynamicBuffer<T> {
     }
 }
 
-pub const BASE_ZOOM: f32 = 5.0; // Logical pixels per unit
+pub const BASE_ZOOM: f32 = 10.0; // Logical pixels per unit
 const LOGICAL_PIXEL_SIZE: f32 = 1.0 / BASE_ZOOM;
 const GEOMETRY_TOLERANCE: f32 = LOGICAL_PIXEL_SIZE / 16.0;
 
@@ -147,22 +147,22 @@ fn build_and_gate_geometry() -> Geometry {
     use lyon::path::*;
     use lyon::tessellation::*;
 
-    const ARC_CTRL_POS: f32 = 0.552284749831 * 4.0;
+    const ARC_CTRL_POS: f32 = 0.552284749831 * 2.0;
 
     let mut builder = Path::builder();
-    builder.begin(point(-4.0, -4.0));
-    builder.line_to(point(-4.0, 0.0));
+    builder.begin(point(-2.0, -2.0));
+    builder.line_to(point(-2.0, 0.0));
     builder.cubic_bezier_to(
-        point(-4.0, ARC_CTRL_POS),
-        point(-ARC_CTRL_POS, 4.0),
-        point(0.0, 4.0),
+        point(-2.0, ARC_CTRL_POS),
+        point(-ARC_CTRL_POS, 2.0),
+        point(0.0, 2.0),
     );
     builder.cubic_bezier_to(
-        point(ARC_CTRL_POS, 4.0),
-        point(4.0, ARC_CTRL_POS),
-        point(4.0, 0.0),
+        point(ARC_CTRL_POS, 2.0),
+        point(2.0, ARC_CTRL_POS),
+        point(2.0, 0.0),
     );
-    builder.line_to(point(4.0, -4.0));
+    builder.line_to(point(2.0, -2.0));
     builder.close();
     let path = builder.build();
 
@@ -386,6 +386,124 @@ impl Viewport {
         self.texture_id
     }
 
+    fn draw_primitives(
+        &mut self,
+        render_state: &RenderState,
+        load_op: LoadOp<Color>,
+        vertices: &[Vertex],
+        instances: &[Instance],
+        indices: &[u32],
+    ) {
+        assert!(vertices.len() < (u32::MAX as usize));
+        assert!(instances.len() < (u32::MAX as usize));
+        assert!(indices.len() < (u32::MAX as usize));
+
+        if (instances.len() > 0) && (indices.len() > 0) {
+            self.vertex_buffer
+                .write_data(&render_state.device, &render_state.queue, vertices);
+
+            self.instance_buffer
+                .write_data(&render_state.device, &render_state.queue, instances);
+
+            self.index_buffer
+                .write_data(&render_state.device, &render_state.queue, indices);
+        }
+
+        let mut encoder = render_state
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor::default());
+
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &self.ms_texture_view,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: load_op,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            if (instances.len() > 0) && (indices.len() > 0) {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_vertex_buffer(0, self.vertex_buffer.as_slice());
+                pass.set_vertex_buffer(1, self.instance_buffer.as_slice());
+                pass.set_index_buffer(self.index_buffer.as_slice(), IndexFormat::Uint32);
+
+                pass.draw_indexed(0..(indices.len() as u32), 0, 0..(instances.len() as u32));
+            }
+        }
+
+        render_state.queue.submit([encoder.finish()]);
+    }
+
+    fn draw_grid(&mut self, render_state: &RenderState, offset: [f32; 2], zoom: f32) {
+        if zoom < 0.99 {
+            self.draw_primitives(render_state, LoadOp::Clear(Color::WHITE), &[], &[], &[]);
+
+            return;
+        }
+
+        let step = if zoom > 1.99 { 1 } else { 2 };
+
+        let width = (self.texture.width() as f32) / (zoom * BASE_ZOOM);
+        let height = (self.texture.height() as f32) / (zoom * BASE_ZOOM);
+
+        let left = (offset[0] - (width * 0.5)).ceil() as i32;
+        let right = (offset[0] + (width * 0.5)).floor() as i32;
+        let bottom = (offset[1] - (height * 0.5)).ceil() as i32;
+        let top = (offset[1] + (height * 0.5)).floor() as i32;
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for x in (left..=right).filter(|&x| (x % step) == 0) {
+            let p_left = (x as f32) - ((LOGICAL_PIXEL_SIZE / 2.0) * (step as f32));
+            let p_right = (x as f32) + ((LOGICAL_PIXEL_SIZE / 2.0) * (step as f32));
+
+            indices.push((vertices.len() as u32) + 0);
+            indices.push((vertices.len() as u32) + 1);
+            indices.push((vertices.len() as u32) + 2);
+            indices.push((vertices.len() as u32) + 1);
+            indices.push((vertices.len() as u32) + 3);
+            indices.push((vertices.len() as u32) + 2);
+
+            vertices.push(Vertex {
+                position: [p_left, (-LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
+            });
+            vertices.push(Vertex {
+                position: [p_left, (LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
+            });
+            vertices.push(Vertex {
+                position: [p_right, (-LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
+            });
+            vertices.push(Vertex {
+                position: [p_right, (LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
+            });
+        }
+
+        let instances: Vec<_> = (bottom..=top)
+            .filter(|&y| (y % step) == 0)
+            .map(|y| Instance {
+                offset: [0.0, y as f32],
+                rotation: 0.0,
+                mirrored: 0,
+                color: [1.0, 0.0, 0.0, 1.0],
+            })
+            .collect();
+
+        self.draw_primitives(
+            render_state,
+            LoadOp::Clear(Color::WHITE),
+            &vertices,
+            &instances,
+            &indices,
+        );
+    }
+
     fn draw_component_instances(
         &mut self,
         render_state: &RenderState,
@@ -410,93 +528,35 @@ impl Viewport {
             return;
         }
 
-        assert!(geometry.vertices.len() < (u32::MAX as usize));
-        assert!(instances.len() < (u32::MAX as usize));
-        assert!(geometry.indices.len() < (u32::MAX as usize));
-
-        self.vertex_buffer.write_data(
-            &render_state.device,
-            &render_state.queue,
+        self.draw_primitives(
+            render_state,
+            LoadOp::Load,
             &geometry.vertices,
+            &instances,
+            &geometry.indices,
         );
-
-        self.instance_buffer
-            .write_data(&render_state.device, &render_state.queue, &instances);
-
-        self.index_buffer
-            .write_data(&render_state.device, &render_state.queue, &geometry.indices);
-
-        let mut encoder = render_state
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor::default());
-
-        {
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.ms_texture_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
-
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.vertex_buffer.as_slice());
-            pass.set_vertex_buffer(1, self.instance_buffer.as_slice());
-            pass.set_index_buffer(self.index_buffer.as_slice(), IndexFormat::Uint32);
-
-            pass.draw_indexed(
-                0..(geometry.indices.len() as u32),
-                0,
-                0..(instances.len() as u32),
-            );
-        }
-
-        render_state.queue.submit([encoder.finish()]);
     }
 
     pub fn draw(&mut self, render_state: &RenderState, circuit: Option<&Circuit>) {
         let width = self.texture.width() as f32;
         let height = self.texture.height() as f32;
 
-        if let Some(circuit) = circuit {
-            let globals = Globals {
-                resolution: [width, height],
-                offset: circuit.offset(),
-                zoom: circuit.zoom() * BASE_ZOOM,
-                _padding: [0; 3],
-            };
+        let (offset, zoom) = circuit
+            .map(|c| (c.offset(), c.zoom()))
+            .unwrap_or(([0.0; 2], 1.0));
 
-            render_state
-                .queue
-                .write_buffer(&self.global_buffer, 0, bytemuck::bytes_of(&globals));
-        }
+        let globals = Globals {
+            resolution: [width, height],
+            offset,
+            zoom: zoom * BASE_ZOOM,
+            _padding: [0; 3],
+        };
 
-        let mut encoder = render_state
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor::default());
-        {
-            let _ = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.ms_texture_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::WHITE),
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
+        render_state
+            .queue
+            .write_buffer(&self.global_buffer, 0, bytemuck::bytes_of(&globals));
 
-            // TODO: draw grid
-        }
-        render_state.queue.submit([encoder.finish()]);
+        self.draw_grid(render_state, offset, zoom);
 
         if let Some(circuit) = circuit {
             self.draw_component_instances(
