@@ -288,7 +288,7 @@ impl eframe::App for App {
                 let zoom = self
                     .selected_circuit
                     .map(|i| self.circuits[i].zoom())
-                    .unwrap_or(1.0);
+                    .unwrap_or(DEFAULT_ZOOM);
                 ui.label(format!("{:.0}%", zoom * 100.0));
             });
         });
@@ -310,7 +310,19 @@ impl eframe::App for App {
                 self.viewport.as_mut().unwrap()
             };
 
-            viewport.draw(render_state, selected_circuit.as_deref());
+            let background_color: Rgba = ui.visuals().extreme_bg_color.into();
+            let grid_color: Rgba = ui.visuals().weak_text_color().into();
+            let component_color: Rgba = ui.visuals().text_color().into();
+
+            viewport.draw(
+                render_state,
+                selected_circuit.as_deref(),
+                ViewportColors {
+                    background_color: background_color.to_array(),
+                    grid_color: grid_color.to_array(),
+                    component_color: component_color.to_array(),
+                },
+            );
 
             let response = Image::new(
                 viewport.texture_id(),

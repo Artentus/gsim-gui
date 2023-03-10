@@ -142,7 +142,7 @@ const GEOMETRY_TOLERANCE: f32 = LOGICAL_PIXEL_SIZE / 16.0;
 
 type Geometry = lyon::tessellation::VertexBuffers<Vertex, u32>;
 
-fn build_and_gate_geometry() -> Geometry {
+fn build_and_gate_geometry() -> (Geometry, Geometry) {
     use lyon::math::*;
     use lyon::path::*;
     use lyon::tessellation::*;
@@ -166,25 +166,37 @@ fn build_and_gate_geometry() -> Geometry {
     builder.close();
     let path = builder.build();
 
-    let mut geometry = Geometry::new();
-    let mut tessellator = StrokeTessellator::new();
-    tessellator
+    let mut stroke_geometry = Geometry::new();
+    let mut stroke_tessellator = StrokeTessellator::new();
+    stroke_tessellator
         .tessellate_path(
             &path,
             &StrokeOptions::DEFAULT
                 .with_line_width(2.0 * LOGICAL_PIXEL_SIZE)
                 .with_tolerance(GEOMETRY_TOLERANCE),
-            &mut BuffersBuilder::new(&mut geometry, |v: StrokeVertex| Vertex {
+            &mut BuffersBuilder::new(&mut stroke_geometry, |v: StrokeVertex| Vertex {
                 position: v.position().to_array(),
             }),
         )
         .expect("failed to tessellate path");
 
-    geometry
+    let mut fill_geometry = Geometry::new();
+    let mut fill_tessellator = FillTessellator::new();
+    fill_tessellator
+        .tessellate_path(
+            &path,
+            &FillOptions::DEFAULT.with_tolerance(GEOMETRY_TOLERANCE),
+            &mut BuffersBuilder::new(&mut fill_geometry, |v: FillVertex| Vertex {
+                position: v.position().to_array(),
+            }),
+        )
+        .expect("failed to tessellate path");
+
+    (stroke_geometry, fill_geometry)
 }
 
 struct GeometryStore {
-    and_gate_geometry: Geometry,
+    and_gate_geometry: (Geometry, Geometry),
 }
 
 impl GeometryStore {
@@ -196,6 +208,12 @@ impl GeometryStore {
             and_gate_geometry: build_and_gate_geometry(),
         })
     }
+}
+
+pub struct ViewportColors {
+    pub background_color: [f32; 4],
+    pub grid_color: [f32; 4],
+    pub component_color: [f32; 4],
 }
 
 pub struct Viewport {
@@ -441,10 +459,23 @@ impl Viewport {
         render_state.queue.submit([encoder.finish()]);
     }
 
-    fn draw_grid(&mut self, render_state: &RenderState, offset: [f32; 2], zoom: f32) {
-        if zoom < 0.99 {
-            self.draw_primitives(render_state, LoadOp::Clear(Color::WHITE), &[], &[], &[]);
+    fn draw_grid(
+        &mut self,
+        render_state: &RenderState,
+        offset: [f32; 2],
+        zoom: f32,
+        background_color: [f32; 4],
+        grid_color: [f32; 4],
+    ) {
+        let clear_color = Color {
+            r: background_color[0] as f64,
+            g: background_color[1] as f64,
+            b: background_color[2] as f64,
+            a: background_color[3] as f64,
+        };
 
+        if zoom < 0.99 {
+            self.draw_primitives(render_state, LoadOp::Clear(clear_color), &[], &[], &[]);
             return;
         }
 
@@ -491,13 +522,13 @@ impl Viewport {
                 offset: [0.0, y as f32],
                 rotation: 0.0,
                 mirrored: 0,
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: grid_color,
             })
             .collect();
 
         self.draw_primitives(
             render_state,
-            LoadOp::Clear(Color::WHITE),
+            LoadOp::Clear(clear_color),
             &vertices,
             &instances,
             &indices,
@@ -509,10 +540,11 @@ impl Viewport {
         render_state: &RenderState,
         circuit: &Circuit,
         filter: impl Fn(&&Component) -> bool,
-        geometry: &Geometry,
-        color: [f32; 4],
+        geometry: &(Geometry, Geometry),
+        stroke_color: [f32; 4],
+        fill_color: [f32; 4],
     ) {
-        let instances: Vec<_> = circuit
+        let mut instances: Vec<_> = circuit
             .components()
             .iter()
             .filter(filter)
@@ -520,7 +552,7 @@ impl Viewport {
                 offset: c.position.map(|x| x as f32),
                 rotation: c.rotation.to_radians(),
                 mirrored: c.mirrored as u32,
-                color,
+                color: fill_color,
             })
             .collect();
 
@@ -531,19 +563,36 @@ impl Viewport {
         self.draw_primitives(
             render_state,
             LoadOp::Load,
-            &geometry.vertices,
+            &geometry.1.vertices,
             &instances,
-            &geometry.indices,
+            &geometry.1.indices,
+        );
+
+        for instance in instances.iter_mut() {
+            instance.color = stroke_color;
+        }
+
+        self.draw_primitives(
+            render_state,
+            LoadOp::Load,
+            &geometry.0.vertices,
+            &instances,
+            &geometry.0.indices,
         );
     }
 
-    pub fn draw(&mut self, render_state: &RenderState, circuit: Option<&Circuit>) {
+    pub fn draw(
+        &mut self,
+        render_state: &RenderState,
+        circuit: Option<&Circuit>,
+        colors: ViewportColors,
+    ) {
         let width = self.texture.width() as f32;
         let height = self.texture.height() as f32;
 
         let (offset, zoom) = circuit
             .map(|c| (c.offset(), c.zoom()))
-            .unwrap_or(([0.0; 2], 1.0));
+            .unwrap_or(([0.0; 2], DEFAULT_ZOOM));
 
         let globals = Globals {
             resolution: [width, height],
@@ -556,7 +605,13 @@ impl Viewport {
             .queue
             .write_buffer(&self.global_buffer, 0, bytemuck::bytes_of(&globals));
 
-        self.draw_grid(render_state, offset, zoom);
+        self.draw_grid(
+            render_state,
+            offset,
+            zoom,
+            colors.background_color,
+            colors.grid_color,
+        );
 
         if let Some(circuit) = circuit {
             self.draw_component_instances(
@@ -564,7 +619,8 @@ impl Viewport {
                 circuit,
                 |c| matches!(c.kind, ComponentKind::AndGate { .. }),
                 &GeometryStore::instance().and_gate_geometry,
-                [0.0, 0.0, 0.0, 1.0],
+                colors.component_color,
+                colors.background_color,
             );
         }
 

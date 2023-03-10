@@ -7,7 +7,7 @@ const MIN_LINEAR_ZOOM: f32 = 0.0;
 const MAX_LINEAR_ZOOM: f32 = 1.0;
 const MIN_ZOOM: f32 = 0.5;
 const MAX_ZOOM: f32 = 4.0;
-const INIT_ZOOM: f32 = 1.0;
+pub const DEFAULT_ZOOM: f32 = 1.0;
 
 // Note: these should be constants but `ln` and `exp` are not constant functions
 fn zoom_fn_a() -> f32 {
@@ -45,8 +45,8 @@ impl Circuit {
         Self {
             name: "New Circuit".to_owned(),
             offset: [0.0; 2],
-            linear_zoom: zoom_to_linear(INIT_ZOOM),
-            zoom: INIT_ZOOM,
+            linear_zoom: zoom_to_linear(DEFAULT_ZOOM),
+            zoom: DEFAULT_ZOOM,
             components: vec![],
             selected_component: None,
         }
