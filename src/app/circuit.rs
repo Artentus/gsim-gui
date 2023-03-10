@@ -17,7 +17,7 @@ impl Circuit {
         Self {
             name: "New Circuit".to_owned(),
             offset: [0.0; 2],
-            zoom: 5.0,
+            zoom: 1.0,
             components: vec![],
             selected_component: None,
         }
@@ -34,8 +34,18 @@ impl Circuit {
     }
 
     #[inline]
+    pub fn set_offset(&mut self, offset: [f32; 2]) {
+        self.offset = offset;
+    }
+
+    #[inline]
     pub fn zoom(&self) -> f32 {
         self.zoom
+    }
+
+    #[inline]
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.zoom = zoom.clamp(0.5, 4.0);
     }
 
     #[inline]

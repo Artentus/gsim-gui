@@ -136,6 +136,10 @@ impl<T: Pod> DynamicBuffer<T> {
     }
 }
 
+pub const BASE_ZOOM: f32 = 5.0; // Logical pixels per unit
+const LOGICAL_PIXEL_SIZE: f32 = 1.0 / BASE_ZOOM;
+const GEOMETRY_TOLERANCE: f32 = LOGICAL_PIXEL_SIZE / 16.0;
+
 type Geometry = lyon::tessellation::VertexBuffers<Vertex, u32>;
 
 fn build_and_gate_geometry() -> Geometry {
@@ -168,8 +172,8 @@ fn build_and_gate_geometry() -> Geometry {
         .tessellate_path(
             &path,
             &StrokeOptions::DEFAULT
-                .with_line_width(0.5)
-                .with_tolerance(0.01),
+                .with_line_width(2.0 * LOGICAL_PIXEL_SIZE)
+                .with_tolerance(GEOMETRY_TOLERANCE),
             &mut BuffersBuilder::new(&mut geometry, |v: StrokeVertex| Vertex {
                 position: v.position().to_array(),
             }),
@@ -457,11 +461,14 @@ impl Viewport {
     }
 
     pub fn draw(&mut self, render_state: &RenderState, circuit: Option<&Circuit>) {
+        let width = self.texture.width() as f32;
+        let height = self.texture.height() as f32;
+
         if let Some(circuit) = circuit {
             let globals = Globals {
-                resolution: [self.texture.width() as f32, self.texture.height() as f32],
+                resolution: [width, height],
                 offset: circuit.offset(),
-                zoom: circuit.zoom(),
+                zoom: circuit.zoom() * BASE_ZOOM,
                 _padding: [0; 3],
             };
 

@@ -285,6 +285,7 @@ impl eframe::App for App {
 
         CentralPanel::default().show(ctx, |ui| {
             let render_state = frame.wgpu_render_state().unwrap();
+            let selected_circuit = self.selected_circuit.map(|i| &mut self.circuits[i]);
 
             let viewport_size = ui.available_size();
             let viewport_width = viewport_size.x.max(1.0) as u32;
@@ -299,15 +300,30 @@ impl eframe::App for App {
                 self.viewport.as_mut().unwrap()
             };
 
-            viewport.draw(
-                render_state,
-                self.selected_circuit.map(|i| &self.circuits[i]),
-            );
+            viewport.draw(render_state, selected_circuit.as_deref());
 
-            ui.image(
+            let response = Image::new(
                 viewport.texture_id(),
                 Vec2::new(viewport_width as f32, viewport_height as f32),
-            );
+            )
+            .sense(Sense::click_and_drag())
+            .ui(ui);
+
+            if let Some(circuit) = selected_circuit {
+                let zoom_delta = ui.input(|state| state.scroll_delta.y) / 240.0;
+                circuit.set_zoom(circuit.zoom() + (circuit.zoom() * zoom_delta));
+
+                if response.dragged()
+                    && ui.input(|state| state.pointer.button_down(PointerButton::Middle))
+                {
+                    let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
+                    let new_offset = [
+                        circuit.offset()[0] - offset_delta.x,
+                        circuit.offset()[1] + offset_delta.y,
+                    ];
+                    circuit.set_offset(new_offset);
+                }
+            }
         });
     }
 }
