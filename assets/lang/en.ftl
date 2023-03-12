@@ -21,4 +21,6 @@ not-gate-tool-tip = NOT-Gate
 
 properties-header = Properties
 bit-width-property-name = Bit-width:
+rotation-property-name = Rotation:
+mirrored-property-name = Mirrored
 reset-to-default-action = Reset to default

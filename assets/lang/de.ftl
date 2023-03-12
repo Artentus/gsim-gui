@@ -21,4 +21,6 @@ not-gate-tool-tip = NOT-Gatter
 
 properties-header = Eigenschaften
 bit-width-property-name = Bit-Breite:
+rotation-property-name = Rotation:
+mirrored-property-name = Gespiegelt
 reset-to-default-action = Auf Standard zurücksetzen

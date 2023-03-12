@@ -34,14 +34,7 @@ pub enum ComponentKind {
 }
 
 impl ComponentKind {
-    pub fn update_properties(
-        &mut self,
-        ui: &mut Ui,
-        locale_manager: &LocaleManager,
-        lang: &LangId,
-    ) {
-        ui.heading(locale_manager.get(lang, "properties-header"));
-
+    fn update_properties(&mut self, ui: &mut Ui, locale_manager: &LocaleManager, lang: &LangId) {
         match self {
             ComponentKind::AndGate { width } => {
                 ui.horizontal(|ui| {
@@ -83,6 +76,24 @@ pub enum Rotation {
     Deg270 = 3,
 }
 
+impl Rotation {
+    const ALL: [Rotation; 4] = [
+        Rotation::Deg0,
+        Rotation::Deg90,
+        Rotation::Deg180,
+        Rotation::Deg270,
+    ];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Rotation::Deg0 => "0°",
+            Rotation::Deg90 => "90°",
+            Rotation::Deg180 => "180°",
+            Rotation::Deg270 => "270°",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Component {
     pub kind: ComponentKind,
@@ -119,5 +130,32 @@ impl Component {
             anchor.position[1] += self.position[1];
         }
         anchors
+    }
+
+    pub fn update_properties(
+        &mut self,
+        ui: &mut Ui,
+        locale_manager: &LocaleManager,
+        lang: &LangId,
+    ) {
+        ui.heading(locale_manager.get(lang, "properties-header"));
+        self.kind.update_properties(ui, locale_manager, lang);
+
+        ui.horizontal(|ui| {
+            ui.label(locale_manager.get(lang, "rotation-property-name"));
+
+            ComboBox::from_id_source("rotation_property")
+                .selected_text(self.rotation.as_str())
+                .show_ui(ui, |ui| {
+                    for rot in Rotation::ALL {
+                        ui.selectable_value(&mut self.rotation, rot, rot.as_str());
+                    }
+                });
+        });
+
+        ui.checkbox(
+            &mut self.mirrored,
+            locale_manager.get(lang, "mirrored-property-name"),
+        );
     }
 }

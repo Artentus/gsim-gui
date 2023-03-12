@@ -99,9 +99,7 @@ impl Circuit {
         lang: &LangId,
     ) {
         if let Some(selected_component) = self.selected_component {
-            self.components[selected_component]
-                .kind
-                .update_properties(ui, locale_manager, lang);
+            self.components[selected_component].update_properties(ui, locale_manager, lang);
         }
     }
 }
