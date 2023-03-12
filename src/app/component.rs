@@ -1,6 +1,32 @@
 use super::locale::*;
 use egui::*;
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum AnchorKind {
+    Input = 0,
+    Output = 1,
+    BiDirectional = 2,
+}
+
+#[derive(Clone, Copy)]
+pub struct Anchor {
+    pub position: [i32; 2],
+    pub kind: AnchorKind,
+}
+
+macro_rules! anchors {
+    ($($kind:ident($x:literal, $y:literal)),* $(,)?) => {
+        smallvec::smallvec![$(
+            Anchor {
+                position: [$x, $y],
+                kind: AnchorKind::$kind,
+            },
+        )*]
+    };
+}
 
 #[derive(Serialize, Deserialize)]
 pub enum ComponentKind {
@@ -39,26 +65,22 @@ impl ComponentKind {
             }
         }
     }
+
+    fn anchors(&self) -> SmallVec<[Anchor; 3]> {
+        match self {
+            ComponentKind::AndGate { .. } => anchors![Input(-1, -2), Input(1, -2), Output(0, 2)],
+        }
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u32)]
 pub enum Rotation {
     #[default]
-    Deg0,
-    Deg90,
-    Deg180,
-    Deg270,
-}
-
-impl Rotation {
-    pub fn to_radians(self) -> f32 {
-        match self {
-            Rotation::Deg0 => 0.0,
-            Rotation::Deg90 => std::f32::consts::FRAC_PI_2,
-            Rotation::Deg180 => std::f32::consts::PI,
-            Rotation::Deg270 => 3.0 * std::f32::consts::FRAC_PI_2,
-        }
-    }
+    Deg0 = 0,
+    Deg90 = 1,
+    Deg180 = 2,
+    Deg270 = 3,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -77,5 +99,25 @@ impl Component {
             rotation: Rotation::default(),
             mirrored: false,
         }
+    }
+
+    pub fn anchors(&self) -> SmallVec<[Anchor; 3]> {
+        let mut anchors = self.kind.anchors();
+        for anchor in anchors.iter_mut() {
+            if self.mirrored {
+                anchor.position[0] = -anchor.position[0];
+            }
+
+            anchor.position = match self.rotation {
+                Rotation::Deg0 => anchor.position,
+                Rotation::Deg90 => [anchor.position[1], -anchor.position[0]],
+                Rotation::Deg180 => [-anchor.position[0], -anchor.position[1]],
+                Rotation::Deg270 => [-anchor.position[1], anchor.position[0]],
+            };
+
+            anchor.position[0] += self.position[0];
+            anchor.position[1] += self.position[1];
+        }
+        anchors
     }
 }

@@ -919,6 +919,7 @@ dependencies = [
  "lyon",
  "once_cell",
  "serde",
+ "smallvec",
  "tracing",
  "tracing-subscriber",
  "tracing-unwrap",

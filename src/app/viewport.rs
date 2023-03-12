@@ -1,16 +1,99 @@
 use super::circuit::*;
 use super::component::*;
+use crate::size_of;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
 use egui::TextureId;
-use std::marker::PhantomData;
-use std::num::NonZeroU64;
 use wgpu::*;
 
-macro_rules! size_of {
-    ($t:ty) => {
-        std::mem::size_of::<$t>()
-    };
+mod buffer;
+use buffer::*;
+
+mod grid;
+use grid::*;
+
+mod anchors;
+use anchors::*;
+
+macro_rules! shader {
+    ($device:expr, $name:literal) => {{
+        const SOURCE: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/shaders/",
+            $name,
+            ".wgsl"
+        ));
+
+        const DESC: wgpu::ShaderModuleDescriptor = wgpu::ShaderModuleDescriptor {
+            label: Some($name),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(SOURCE)),
+        };
+
+        $device.create_shader_module(DESC)
+    }};
+}
+pub(self) use shader;
+
+trait RenderStateEx {
+    fn render_pass<'env, F>(
+        &self,
+        view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        clear_color: Option<Color>,
+        f: F,
+    ) where
+        // To restrict the lifetime of the closure in a way the compiler understands,
+        // this weird double reference is necessary.
+        for<'pass> F: FnOnce(&mut RenderPass<'pass>, &'pass &'env ());
+
+    #[inline]
+    fn clear_pass(&self, view: &TextureView, clear_color: Color) {
+        self.render_pass(view, None, Some(clear_color), |_, _| {});
+    }
+
+    #[inline]
+    fn resolve_pass(&self, view: &TextureView, resolve_target: &TextureView) {
+        self.render_pass(view, Some(resolve_target), None, |_, _| {});
+    }
+}
+
+impl RenderStateEx for RenderState {
+    fn render_pass<'env, F>(
+        &self,
+        view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        clear_color: Option<Color>,
+        f: F,
+    ) where
+        for<'pass> F: FnOnce(&mut RenderPass<'pass>, &'pass &'env ()),
+    {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor::default());
+
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view,
+                    resolve_target,
+                    ops: Operations {
+                        load: if let Some(clear_color) = clear_color {
+                            LoadOp::Clear(clear_color)
+                        } else {
+                            LoadOp::Load
+                        },
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            f(&mut pass, &&());
+        }
+
+        self.queue.submit([encoder.finish()]);
+    }
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
@@ -19,20 +102,19 @@ struct Globals {
     resolution: [f32; 2],
     offset: [f32; 2],
     zoom: f32,
-    _padding: [u32; 3],
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
-pub struct Vertex {
-    pub position: [f32; 2],
+struct Vertex {
+    position: [f32; 2],
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 struct Instance {
     offset: [f32; 2],
-    rotation: f32,
+    rotation: u32,
     mirrored: u32,
     color: [f32; 4],
 }
@@ -81,68 +163,51 @@ fn create_viewport_texture(
     (texture, texture_view, ms_texture, ms_texture_view)
 }
 
-struct DynamicBuffer<T: Pod> {
-    label: String,
-    usage: BufferUsages,
-    capacity: usize,
-    len: usize,
-    buffer: Buffer,
-    _t: PhantomData<*mut T>,
-}
-
-impl<T: Pod> DynamicBuffer<T> {
-    fn create(device: &Device, label: impl Into<String>, usage: BufferUsages) -> Self {
-        const INITIAL_CAPACITY: usize = 1000;
-
-        let label: String = label.into();
-
-        let buffer = device.create_buffer(&BufferDescriptor {
-            label: Some(label.as_str()),
-            size: (size_of!(T) * INITIAL_CAPACITY) as u64,
-            usage: usage | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        Self {
-            label,
-            usage,
-            capacity: INITIAL_CAPACITY,
-            len: 0,
-            buffer,
-            _t: PhantomData,
-        }
-    }
-
-    fn write_data(&mut self, device: &Device, queue: &Queue, data: &[T]) {
-        if data.len() > self.capacity {
-            self.capacity = data.len() * 2;
-
-            self.buffer = device.create_buffer(&BufferDescriptor {
-                label: Some(self.label.as_str()),
-                size: (size_of!(T) * self.capacity) as u64,
-                usage: self.usage | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-
-        self.len = data.len();
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(data));
-    }
-
-    #[inline]
-    fn as_slice(&self) -> BufferSlice<'_> {
-        let slice_end = (size_of!(T) * self.len) as u64;
-        self.buffer.slice(..slice_end)
-    }
-}
-
 pub const BASE_ZOOM: f32 = 10.0; // Logical pixels per unit
 const LOGICAL_PIXEL_SIZE: f32 = 1.0 / BASE_ZOOM;
 const GEOMETRY_TOLERANCE: f32 = LOGICAL_PIXEL_SIZE / 16.0;
 
-type Geometry = lyon::tessellation::VertexBuffers<Vertex, u32>;
+struct Geometry {
+    vertices: StaticBuffer<Vertex>,
+    indices: StaticBuffer<u16>,
+}
 
-fn build_and_gate_geometry() -> (Geometry, Geometry) {
+macro_rules! geometry {
+    ($device:expr, $stroke:expr, $fill:expr, $label:literal) => {
+        (
+            Geometry {
+                vertices: StaticBuffer::create_init(
+                    $device,
+                    Some(concat!($label, " stroke vertices")),
+                    BufferUsages::VERTEX,
+                    &$stroke.vertices,
+                ),
+                indices: StaticBuffer::create_init(
+                    $device,
+                    Some(concat!($label, " stroke indices")),
+                    BufferUsages::INDEX,
+                    &$stroke.indices,
+                ),
+            },
+            Geometry {
+                vertices: StaticBuffer::create_init(
+                    $device,
+                    Some(concat!($label, " fill vertices")),
+                    BufferUsages::VERTEX,
+                    &$fill.vertices,
+                ),
+                indices: StaticBuffer::create_init(
+                    $device,
+                    Some(concat!($label, " fill indices")),
+                    BufferUsages::INDEX,
+                    &$fill.indices,
+                ),
+            },
+        )
+    };
+}
+
+fn build_and_gate_geometry(device: &Device) -> (Geometry, Geometry) {
     use lyon::math::*;
     use lyon::path::*;
     use lyon::tessellation::*;
@@ -166,7 +231,7 @@ fn build_and_gate_geometry() -> (Geometry, Geometry) {
     builder.close();
     let path = builder.build();
 
-    let mut stroke_geometry = Geometry::new();
+    let mut stroke_geometry = VertexBuffers::new();
     let mut stroke_tessellator = StrokeTessellator::new();
     stroke_tessellator
         .tessellate_path(
@@ -180,7 +245,7 @@ fn build_and_gate_geometry() -> (Geometry, Geometry) {
         )
         .expect("failed to tessellate path");
 
-    let mut fill_geometry = Geometry::new();
+    let mut fill_geometry = VertexBuffers::new();
     let mut fill_tessellator = FillTessellator::new();
     fill_tessellator
         .tessellate_path(
@@ -192,7 +257,7 @@ fn build_and_gate_geometry() -> (Geometry, Geometry) {
         )
         .expect("failed to tessellate path");
 
-    (stroke_geometry, fill_geometry)
+    geometry!(device, stroke_geometry, fill_geometry, "AND gate")
 }
 
 struct GeometryStore {
@@ -200,12 +265,12 @@ struct GeometryStore {
 }
 
 impl GeometryStore {
-    fn instance() -> &'static Self {
+    fn instance(device: &Device) -> &'static Self {
         use once_cell::sync::OnceCell;
 
         static INSTANCE: OnceCell<GeometryStore> = OnceCell::new();
         INSTANCE.get_or_init(|| GeometryStore {
-            and_gate_geometry: build_and_gate_geometry(),
+            and_gate_geometry: build_and_gate_geometry(device),
         })
     }
 }
@@ -223,24 +288,19 @@ pub struct Viewport {
     texture_view: TextureView,
     ms_texture: Texture,
     ms_texture_view: TextureView,
-    global_buffer: Buffer,
+    global_buffer: StaticBuffer<Globals>,
     _bind_group_layout: BindGroupLayout,
     bind_group: BindGroup,
-    vertex_buffer: DynamicBuffer<Vertex>,
     instance_buffer: DynamicBuffer<Instance>,
-    index_buffer: DynamicBuffer<u32>,
     _pipeline_layout: PipelineLayout,
     pipeline: RenderPipeline,
+    grid: ViewportGrid,
+    anchors: ViewportAnchors,
 }
 
 impl Viewport {
     pub fn create(render_state: &RenderState, width: u32, height: u32) -> Self {
-        let shader = render_state
-            .device
-            .create_shader_module(include_wgsl!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/shaders/viewport.wgsl"
-            )));
+        let shader = shader!(render_state.device, "component");
 
         let (texture, texture_view, ms_texture, ms_texture_view) =
             create_viewport_texture(render_state, width, height);
@@ -251,29 +311,18 @@ impl Viewport {
             FilterMode::Nearest,
         );
 
-        let global_buffer = render_state.device.create_buffer(&BufferDescriptor {
-            label: Some("Viewport globals"),
-            size: size_of!(Globals) as u64,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let vertex_buffer = DynamicBuffer::create(
+        let global_buffer = StaticBuffer::create(
             &render_state.device,
-            "Viewport vertices",
-            BufferUsages::VERTEX,
+            Some("Viewport globals"),
+            BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            1,
         );
 
         let instance_buffer = DynamicBuffer::create(
             &render_state.device,
-            "Viewport instances",
-            BufferUsages::VERTEX,
-        );
-
-        let index_buffer = DynamicBuffer::create(
-            &render_state.device,
-            "Viewport indices",
-            BufferUsages::INDEX,
+            Some("Viewport instances"),
+            BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            128,
         );
 
         let bind_group_layout =
@@ -287,9 +336,7 @@ impl Viewport {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: Some(
-                                NonZeroU64::new(size_of!(Globals) as u64).unwrap(),
-                            ),
+                            min_binding_size: Some(global_buffer.byte_size()),
                         },
                         count: None,
                     }],
@@ -300,7 +347,7 @@ impl Viewport {
             layout: &bind_group_layout,
             entries: &[BindGroupEntry {
                 binding: 0,
-                resource: global_buffer.as_entire_binding(),
+                resource: global_buffer.as_binding(),
             }],
         });
 
@@ -323,14 +370,14 @@ impl Viewport {
                     entry_point: "vs_main",
                     buffers: &[
                         VertexBufferLayout {
-                            array_stride: size_of!(Vertex) as u64,
+                            array_stride: size_of!(Vertex) as BufferAddress,
                             step_mode: VertexStepMode::Vertex,
                             attributes: &vertex_attr_array![0 => Float32x2],
                         },
                         VertexBufferLayout {
-                            array_stride: size_of!(Instance) as u64,
+                            array_stride: size_of!(Instance) as BufferAddress,
                             step_mode: VertexStepMode::Instance,
-                            attributes: &vertex_attr_array![1 => Float32x2, 2 => Float32, 3 => Uint32, 4 => Float32x4],
+                            attributes: &vertex_attr_array![1 => Float32x2, 2 => Uint32, 3 => Uint32, 4 => Float32x4],
                         },
                     ],
                 },
@@ -357,6 +404,9 @@ impl Viewport {
                 multiview: None,
             });
 
+        let grid = ViewportGrid::create(render_state);
+        let anchors = ViewportAnchors::create(render_state);
+
         Self {
             _shader: shader,
             texture_id,
@@ -367,11 +417,11 @@ impl Viewport {
             global_buffer,
             _bind_group_layout: bind_group_layout,
             bind_group,
-            vertex_buffer,
             instance_buffer,
-            index_buffer,
             _pipeline_layout: pipeline_layout,
             pipeline,
+            grid,
+            anchors,
         }
     }
 
@@ -407,132 +457,28 @@ impl Viewport {
     fn draw_primitives(
         &mut self,
         render_state: &RenderState,
-        load_op: LoadOp<Color>,
-        vertices: &[Vertex],
+        vertices: &StaticBuffer<Vertex>,
         instances: &[Instance],
-        indices: &[u32],
+        indices: &StaticBuffer<u16>,
     ) {
-        assert!(vertices.len() < (u32::MAX as usize));
         assert!(instances.len() < (u32::MAX as usize));
-        assert!(indices.len() < (u32::MAX as usize));
 
-        if (instances.len() > 0) && (indices.len() > 0) {
-            self.vertex_buffer
-                .write_data(&render_state.device, &render_state.queue, vertices);
-
+        if instances.len() > 0 {
             self.instance_buffer
-                .write_data(&render_state.device, &render_state.queue, instances);
-
-            self.index_buffer
-                .write_data(&render_state.device, &render_state.queue, indices);
+                .write(&render_state.device, &render_state.queue, instances);
         }
 
-        let mut encoder = render_state
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor::default());
-
-        {
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.ms_texture_view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: load_op,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
-
-            if (instances.len() > 0) && (indices.len() > 0) {
+        render_state.render_pass(&self.ms_texture_view, None, None, |pass, _| {
+            if instances.len() > 0 {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
-                pass.set_vertex_buffer(0, self.vertex_buffer.as_slice());
-                pass.set_vertex_buffer(1, self.instance_buffer.as_slice());
-                pass.set_index_buffer(self.index_buffer.as_slice(), IndexFormat::Uint32);
+                pass.set_vertex_buffer(0, vertices.slice());
+                pass.set_vertex_buffer(1, self.instance_buffer.slice());
+                pass.set_index_buffer(indices.slice(), IndexFormat::Uint16);
 
                 pass.draw_indexed(0..(indices.len() as u32), 0, 0..(instances.len() as u32));
             }
-        }
-
-        render_state.queue.submit([encoder.finish()]);
-    }
-
-    fn draw_grid(
-        &mut self,
-        render_state: &RenderState,
-        offset: [f32; 2],
-        zoom: f32,
-        background_color: [f32; 4],
-        grid_color: [f32; 4],
-    ) {
-        let clear_color = Color {
-            r: background_color[0] as f64,
-            g: background_color[1] as f64,
-            b: background_color[2] as f64,
-            a: background_color[3] as f64,
-        };
-
-        if zoom < 0.99 {
-            self.draw_primitives(render_state, LoadOp::Clear(clear_color), &[], &[], &[]);
-            return;
-        }
-
-        let step = if zoom > 1.99 { 1 } else { 2 };
-
-        let width = (self.texture.width() as f32) / (zoom * BASE_ZOOM);
-        let height = (self.texture.height() as f32) / (zoom * BASE_ZOOM);
-
-        let left = (offset[0] - (width * 0.5)).ceil() as i32;
-        let right = (offset[0] + (width * 0.5)).floor() as i32;
-        let bottom = (offset[1] - (height * 0.5)).ceil() as i32;
-        let top = (offset[1] + (height * 0.5)).floor() as i32;
-
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        for x in (left..=right).filter(|&x| (x % step) == 0) {
-            let p_left = (x as f32) - ((LOGICAL_PIXEL_SIZE / 2.0) * (step as f32));
-            let p_right = (x as f32) + ((LOGICAL_PIXEL_SIZE / 2.0) * (step as f32));
-
-            indices.push((vertices.len() as u32) + 0);
-            indices.push((vertices.len() as u32) + 1);
-            indices.push((vertices.len() as u32) + 2);
-            indices.push((vertices.len() as u32) + 1);
-            indices.push((vertices.len() as u32) + 3);
-            indices.push((vertices.len() as u32) + 2);
-
-            vertices.push(Vertex {
-                position: [p_left, (-LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
-            });
-            vertices.push(Vertex {
-                position: [p_left, (LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
-            });
-            vertices.push(Vertex {
-                position: [p_right, (-LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
-            });
-            vertices.push(Vertex {
-                position: [p_right, (LOGICAL_PIXEL_SIZE / 2.0) * (step as f32)],
-            });
-        }
-
-        let instances: Vec<_> = (bottom..=top)
-            .filter(|&y| (y % step) == 0)
-            .map(|y| Instance {
-                offset: [0.0, y as f32],
-                rotation: 0.0,
-                mirrored: 0,
-                color: grid_color,
-            })
-            .collect();
-
-        self.draw_primitives(
-            render_state,
-            LoadOp::Clear(clear_color),
-            &vertices,
-            &instances,
-            &indices,
-        );
+        });
     }
 
     fn draw_component_instances(
@@ -550,7 +496,7 @@ impl Viewport {
             .filter(filter)
             .map(|c| Instance {
                 offset: c.position.map(|x| x as f32),
-                rotation: c.rotation.to_radians(),
+                rotation: c.rotation as u32,
                 mirrored: c.mirrored as u32,
                 color: fill_color,
             })
@@ -562,7 +508,6 @@ impl Viewport {
 
         self.draw_primitives(
             render_state,
-            LoadOp::Load,
             &geometry.1.vertices,
             &instances,
             &geometry.1.indices,
@@ -574,7 +519,6 @@ impl Viewport {
 
         self.draw_primitives(
             render_state,
-            LoadOp::Load,
             &geometry.0.vertices,
             &instances,
             &geometry.0.indices,
@@ -594,23 +538,23 @@ impl Viewport {
             .map(|c| (c.offset(), c.zoom()))
             .unwrap_or(([0.0; 2], DEFAULT_ZOOM));
 
-        let globals = Globals {
-            resolution: [width, height],
-            offset,
-            zoom: zoom * BASE_ZOOM,
-            _padding: [0; 3],
-        };
-
-        render_state
-            .queue
-            .write_buffer(&self.global_buffer, 0, bytemuck::bytes_of(&globals));
-
-        self.draw_grid(
+        self.grid.draw(
             render_state,
+            &self.ms_texture_view,
+            [width, height],
             offset,
             zoom,
             colors.background_color,
             colors.grid_color,
+        );
+
+        self.global_buffer.write(
+            &render_state.queue,
+            &[Globals {
+                resolution: [width, height],
+                offset,
+                zoom: zoom * BASE_ZOOM,
+            }],
         );
 
         if let Some(circuit) = circuit {
@@ -618,29 +562,21 @@ impl Viewport {
                 render_state,
                 circuit,
                 |c| matches!(c.kind, ComponentKind::AndGate { .. }),
-                &GeometryStore::instance().and_gate_geometry,
+                &GeometryStore::instance(&render_state.device).and_gate_geometry,
                 colors.component_color,
                 colors.background_color,
             );
+
+            self.anchors.draw(
+                render_state,
+                &self.ms_texture_view,
+                circuit,
+                [width, height],
+                offset,
+                zoom,
+            );
         }
 
-        let mut encoder = render_state
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor::default());
-        {
-            let _ = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.ms_texture_view,
-                    resolve_target: Some(&self.texture_view),
-                    ops: Operations {
-                        load: LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
-        }
-        render_state.queue.submit([encoder.finish()]);
+        render_state.resolve_pass(&self.ms_texture_view, &self.texture_view);
     }
 }
