@@ -332,19 +332,42 @@ impl eframe::App for App {
             .ui(ui);
 
             if let Some(circuit) = selected_circuit {
+                let viewport_rect = response.rect;
+
+                if response.is_pointer_button_down_on()
+                    && ui.input(|state| state.pointer.button_pressed(PointerButton::Primary))
+                {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        if viewport_rect.contains(pos) {
+                            let mut rel_pos = pos - viewport_rect.min;
+                            rel_pos.y = viewport_rect.height() - rel_pos.y;
+                            rel_pos -= response.rect.size() * 0.5;
+
+                            circuit.update_selection([rel_pos.x, rel_pos.y]);
+                        }
+                    }
+                }
+
                 const ZOOM_LEVELS: f32 = 10.0;
                 let zoom_delta = ui.input(|state| state.scroll_delta.y) / 120.0;
                 circuit.set_linear_zoom(circuit.linear_zoom() + (zoom_delta / ZOOM_LEVELS));
 
-                if response.dragged()
-                    && ui.input(|state| state.pointer.button_down(PointerButton::Middle))
-                {
-                    let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
-                    let new_offset = [
-                        circuit.offset()[0] - offset_delta.x,
-                        circuit.offset()[1] + offset_delta.y,
-                    ];
-                    circuit.set_offset(new_offset);
+                if response.dragged() {
+                    if ui.input(|state| state.pointer.button_down(PointerButton::Primary)) {
+                        let drag_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
+                        let delta = [drag_delta.x, -drag_delta.y];
+                        circuit.drag_selection(delta);
+                    } else if ui.input(|state| {
+                        state.pointer.button_down(PointerButton::Secondary)
+                            | state.pointer.button_down(PointerButton::Middle)
+                    }) {
+                        let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
+                        let new_offset = [
+                            circuit.offset()[0] - offset_delta.x,
+                            circuit.offset()[1] + offset_delta.y,
+                        ];
+                        circuit.set_offset(new_offset);
+                    }
                 }
             }
         });

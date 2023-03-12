@@ -12,8 +12,11 @@ use buffer::*;
 mod grid;
 use grid::*;
 
-mod anchors;
-use anchors::*;
+mod wire;
+use wire::*;
+
+mod anchor;
+use anchor::*;
 
 macro_rules! shader {
     ($device:expr, $name:literal) => {{
@@ -295,6 +298,7 @@ pub struct Viewport {
     _pipeline_layout: PipelineLayout,
     pipeline: RenderPipeline,
     grid: ViewportGrid,
+    wires: ViewportWires,
     anchors: ViewportAnchors,
 }
 
@@ -405,6 +409,7 @@ impl Viewport {
             });
 
         let grid = ViewportGrid::create(render_state);
+        let wires = ViewportWires::create(render_state);
         let anchors = ViewportAnchors::create(render_state);
 
         Self {
@@ -421,6 +426,7 @@ impl Viewport {
             _pipeline_layout: pipeline_layout,
             pipeline,
             grid,
+            wires,
             anchors,
         }
     }
@@ -565,6 +571,15 @@ impl Viewport {
                 &GeometryStore::instance(&render_state.device).and_gate_geometry,
                 colors.component_color,
                 colors.background_color,
+            );
+
+            self.wires.draw(
+                render_state,
+                &self.ms_texture_view,
+                circuit,
+                [width, height],
+                offset,
+                zoom,
             );
 
             self.anchors.draw(

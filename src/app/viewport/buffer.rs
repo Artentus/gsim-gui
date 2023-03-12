@@ -126,7 +126,7 @@ impl<T: Pod> StaticBuffer<T> {
     }
 
     pub fn write(&mut self, queue: &Queue, data: &[T]) {
-        debug_assert_eq!(data.len(), self.len);
+        debug_assert!(data.len() <= self.len);
         self.buffer.write(queue, bytemuck::cast_slice(data));
     }
 

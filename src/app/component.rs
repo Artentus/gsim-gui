@@ -3,12 +3,27 @@ use egui::*;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
+#[derive(Clone, Copy)]
+pub struct BoundingBox {
+    top: f32,
+    bottom: f32,
+    left: f32,
+    right: f32,
+}
+
+impl BoundingBox {
+    pub fn contains(&self, p: [f32; 2]) -> bool {
+        (p[0] >= self.left) && (p[0] <= self.right) && (p[1] >= self.bottom) && (p[1] <= self.top)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum AnchorKind {
     Input = 0,
     Output = 1,
     BiDirectional = 2,
+    Passive = 3,
 }
 
 #[derive(Clone, Copy)]
@@ -34,6 +49,23 @@ pub enum ComponentKind {
 }
 
 impl ComponentKind {
+    fn anchors(&self) -> SmallVec<[Anchor; 3]> {
+        match self {
+            ComponentKind::AndGate { .. } => anchors![Input(-1, -2), Input(1, -2), Output(0, 2)],
+        }
+    }
+
+    fn bounding_box(&self) -> BoundingBox {
+        match self {
+            ComponentKind::AndGate { .. } => BoundingBox {
+                top: 2.0,
+                bottom: -2.0,
+                left: -2.0,
+                right: 2.0,
+            },
+        }
+    }
+
     fn update_properties(&mut self, ui: &mut Ui, locale_manager: &LocaleManager, lang: &LangId) {
         match self {
             ComponentKind::AndGate { width } => {
@@ -46,22 +78,7 @@ impl ComponentKind {
                         *width = new_width;
                     }
                 });
-
-                //ui.with_layout(Layout::top_down(Align::Max), |ui| {
-                //    if ui
-                //        .button(locale_manager.get(lang, "reset-to-default-action"))
-                //        .clicked()
-                //    {
-                //        *width = 1;
-                //    }
-                //});
             }
-        }
-    }
-
-    fn anchors(&self) -> SmallVec<[Anchor; 3]> {
-        match self {
-            ComponentKind::AndGate { .. } => anchors![Input(-1, -2), Input(1, -2), Output(0, 2)],
         }
     }
 }
@@ -132,14 +149,70 @@ impl Component {
         anchors
     }
 
+    pub fn bounding_box(&self) -> BoundingBox {
+        let mut bb = self.kind.bounding_box();
+
+        if self.mirrored {
+            std::mem::swap(&mut bb.left, &mut bb.right);
+        }
+
+        bb = match self.rotation {
+            Rotation::Deg0 => bb,
+            Rotation::Deg90 => BoundingBox {
+                top: -bb.left,
+                bottom: -bb.right,
+                left: bb.bottom,
+                right: bb.top,
+            },
+            Rotation::Deg180 => BoundingBox {
+                top: -bb.bottom,
+                bottom: -bb.top,
+                left: -bb.right,
+                right: -bb.left,
+            },
+            Rotation::Deg270 => BoundingBox {
+                top: bb.right,
+                bottom: bb.left,
+                left: -bb.top,
+                right: -bb.bottom,
+            },
+        };
+
+        bb.top += self.position[1] as f32;
+        bb.bottom += self.position[1] as f32;
+        bb.left += self.position[0] as f32;
+        bb.right += self.position[0] as f32;
+
+        bb
+    }
+
     pub fn update_properties(
         &mut self,
         ui: &mut Ui,
         locale_manager: &LocaleManager,
         lang: &LangId,
     ) {
-        ui.heading(locale_manager.get(lang, "properties-header"));
         self.kind.update_properties(ui, locale_manager, lang);
+
+        ui.horizontal(|ui| {
+            ui.label("X:");
+
+            let mut x_text = format!("{}", self.position[0]);
+            ui.text_edit_singleline(&mut x_text);
+            if let Ok(new_x) = x_text.parse() {
+                self.position[0] = new_x;
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Y:");
+
+            let mut y_text = format!("{}", self.position[1]);
+            ui.text_edit_singleline(&mut y_text);
+            if let Ok(new_y) = y_text.parse() {
+                self.position[1] = new_y;
+            }
+        });
 
         ui.horizontal(|ui| {
             ui.label(locale_manager.get(lang, "rotation-property-name"));

@@ -9,9 +9,7 @@ use wgpu::*;
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 struct Globals {
-    input_color: [f32; 4],
-    output_color: [f32; 4],
-    bidirectional_color: [f32; 4],
+    color: [f32; 4],
     resolution: [f32; 2],
     offset: [f32; 2],
     zoom: f32,
@@ -23,84 +21,54 @@ pub struct Vertex {
     position: [f32; 2],
 }
 
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Instance {
-    offset: [f32; 2],
-    kind: u32,
-}
-
-const VERTEX_COUNT: usize = 24;
-
-fn vertices() -> &'static [Vertex; VERTEX_COUNT + 1] {
-    use once_cell::sync::OnceCell;
-
-    static VERTICES: OnceCell<[Vertex; VERTEX_COUNT + 1]> = OnceCell::new();
-    VERTICES.get_or_init(|| {
-        let mut vertices = [Vertex { position: [0.0; 2] }; VERTEX_COUNT + 1];
-        for i in 0..VERTEX_COUNT {
-            let angle = ((i as f32) / (VERTEX_COUNT as f32)) * std::f32::consts::TAU;
-            let (y, x) = angle.sin_cos();
-            vertices[i] = Vertex {
-                position: [x * LOGICAL_PIXEL_SIZE * 2.0, y * LOGICAL_PIXEL_SIZE * 2.0],
-            };
-        }
-        vertices
-    })
-}
-
-const INDICES: [u16; VERTEX_COUNT * 3] = {
-    let mut indices = [0; VERTEX_COUNT * 3];
+const BATCH_SIZE: usize = ((u16::MAX as usize) + 1) / 4;
+const INDICES: [u16; BATCH_SIZE * 6] = {
+    let mut indices = [0; BATCH_SIZE * 6];
     let mut i = 0;
-    while i < VERTEX_COUNT {
-        indices[i * 3 + 0] = VERTEX_COUNT as u16;
-        indices[i * 3 + 1] = ((i + 0) % VERTEX_COUNT) as u16;
-        indices[i * 3 + 2] = ((i + 1) % VERTEX_COUNT) as u16;
+    while i < BATCH_SIZE {
+        indices[i * 6 + 0] = (i as u16) * 4 + 0;
+        indices[i * 6 + 1] = (i as u16) * 4 + 1;
+        indices[i * 6 + 2] = (i as u16) * 4 + 2;
+        indices[i * 6 + 3] = (i as u16) * 4 + 1;
+        indices[i * 6 + 4] = (i as u16) * 4 + 3;
+        indices[i * 6 + 5] = (i as u16) * 4 + 2;
         i += 1;
     }
     indices
 };
 
-pub struct ViewportAnchors {
+pub struct ViewportWires {
     _shader: ShaderModule,
     global_buffer: StaticBuffer<Globals>,
     _bind_group_layout: BindGroupLayout,
     bind_group: BindGroup,
     vertex_buffer: StaticBuffer<Vertex>,
-    instance_buffer: DynamicBuffer<Instance>,
     index_buffer: StaticBuffer<u16>,
     _pipeline_layout: PipelineLayout,
     pipeline: RenderPipeline,
 }
 
-impl ViewportAnchors {
+impl ViewportWires {
     pub fn create(render_state: &RenderState) -> Self {
-        let shader = shader!(render_state.device, "anchors");
+        let shader = shader!(render_state.device, "wire");
 
         let global_buffer = StaticBuffer::create(
             &render_state.device,
-            Some("Viewport anchors globals"),
+            Some("Viewport wire globals"),
             BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             1,
         );
 
-        let vertex_buffer = StaticBuffer::create_init(
+        let vertex_buffer = StaticBuffer::create(
             &render_state.device,
-            Some("Viewport anchors vertices"),
-            BufferUsages::VERTEX,
-            vertices(),
-        );
-
-        let instance_buffer = DynamicBuffer::create(
-            &render_state.device,
-            Some("Viewport anchors instances"),
+            Some("Viewport wire vertices"),
             BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            128 * 1024,
+            BATCH_SIZE * 4,
         );
 
         let index_buffer = StaticBuffer::create_init(
             &render_state.device,
-            Some("Viewport anchors indices"),
+            Some("Viewport wire indices"),
             BufferUsages::INDEX,
             &INDICES,
         );
@@ -135,7 +103,7 @@ impl ViewportAnchors {
             render_state
                 .device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: Some("Viewport anchors pipeline layout"),
+                    label: Some("Viewport wire pipeline layout"),
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
                 });
@@ -143,23 +111,16 @@ impl ViewportAnchors {
         let pipeline = render_state
             .device
             .create_render_pipeline(&RenderPipelineDescriptor {
-                label: Some("Viewport anchors pipeline"),
+                label: Some("Viewport wire pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: VertexState {
                     module: &shader,
                     entry_point: "vs_main",
-                    buffers: &[
-                        VertexBufferLayout {
-                            array_stride: size_of!(Vertex) as BufferAddress,
-                            step_mode: VertexStepMode::Vertex,
-                            attributes: &vertex_attr_array![0 => Float32x2],
-                        },
-                        VertexBufferLayout {
-                            array_stride: size_of!(Instance) as BufferAddress,
-                            step_mode: VertexStepMode::Instance,
-                            attributes: &vertex_attr_array![1 => Float32x2, 2 => Uint32],
-                        },
-                    ],
+                    buffers: &[VertexBufferLayout {
+                        array_stride: size_of!(Vertex) as BufferAddress,
+                        step_mode: VertexStepMode::Vertex,
+                        attributes: &vertex_attr_array![0 => Float32x2],
+                    }],
                 },
                 primitive: PrimitiveState {
                     topology: PrimitiveTopology::TriangleList,
@@ -190,7 +151,6 @@ impl ViewportAnchors {
             _bind_group_layout: bind_group_layout,
             bind_group,
             vertex_buffer,
-            instance_buffer,
             index_buffer,
             _pipeline_layout: pipeline_layout,
             pipeline,
@@ -206,40 +166,68 @@ impl ViewportAnchors {
         offset: [f32; 2],
         zoom: f32,
     ) {
-        let mut instances = Vec::new();
-        for component in circuit.components() {
-            for anchor in component.anchors() {
-                instances.push(Instance {
-                    offset: [anchor.position[0] as f32, anchor.position[1] as f32],
-                    kind: anchor.kind as u32,
+        self.global_buffer.write(
+            &render_state.queue,
+            &[Globals {
+                color: [0.0, 0.0, 1.0, 1.0],
+                resolution,
+                offset,
+                zoom: zoom * BASE_ZOOM,
+            }],
+        );
+
+        let mut count = 0;
+        let mut vertices = Vec::with_capacity(BATCH_SIZE * 4);
+        for segment in circuit.wire_segments() {
+            let a = [segment.point_a[0] as f32, segment.point_a[1] as f32];
+            let b = [segment.point_b[0] as f32, segment.point_b[1] as f32];
+            let dir = [b[0] - a[0], b[1] - a[1]];
+            let dir_len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
+            let dir = [dir[0] / dir_len, dir[1] / dir_len];
+            let left = [dir[1] * LOGICAL_PIXEL_SIZE, -dir[0] * LOGICAL_PIXEL_SIZE];
+            let right = [-dir[1] * LOGICAL_PIXEL_SIZE, dir[0] * LOGICAL_PIXEL_SIZE];
+
+            vertices.push(Vertex {
+                position: [a[0] + left[0], a[1] + left[1]],
+            });
+            vertices.push(Vertex {
+                position: [a[0] + right[0], a[1] + right[1]],
+            });
+            vertices.push(Vertex {
+                position: [b[0] + left[0], b[1] + left[1]],
+            });
+            vertices.push(Vertex {
+                position: [b[0] + right[0], b[1] + right[1]],
+            });
+
+            count += 1;
+            if count >= BATCH_SIZE {
+                self.vertex_buffer.write(&render_state.queue, &vertices);
+
+                render_state.render_pass(texture_view, None, None, |pass, _| {
+                    pass.set_pipeline(&self.pipeline);
+                    pass.set_bind_group(0, &self.bind_group, &[]);
+                    pass.set_vertex_buffer(0, self.vertex_buffer.slice());
+                    pass.set_index_buffer(self.index_buffer.slice(), IndexFormat::Uint16);
+
+                    pass.draw_indexed(0..((BATCH_SIZE * 6) as u32), 0, 0..1);
                 });
+
+                count = 0;
+                vertices.clear();
             }
         }
 
-        if instances.len() > 0 {
-            self.global_buffer.write(
-                &render_state.queue,
-                &[Globals {
-                    input_color: [0.0, 1.0, 0.0, 1.0],
-                    output_color: [1.0, 0.0, 0.0, 1.0],
-                    bidirectional_color: [1.0, 1.0, 0.0, 1.0],
-                    resolution,
-                    offset,
-                    zoom: zoom * BASE_ZOOM,
-                }],
-            );
-
-            self.instance_buffer
-                .write(&render_state.device, &render_state.queue, &instances);
+        if count > 0 {
+            self.vertex_buffer.write(&render_state.queue, &vertices);
 
             render_state.render_pass(texture_view, None, None, |pass, _| {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 pass.set_vertex_buffer(0, self.vertex_buffer.slice());
-                pass.set_vertex_buffer(1, self.instance_buffer.slice());
                 pass.set_index_buffer(self.index_buffer.slice(), IndexFormat::Uint16);
 
-                pass.draw_indexed(0..(INDICES.len() as u32), 0, 0..(instances.len() as u32));
+                pass.draw_indexed(0..((count * 6) as u32), 0, 0..1);
             });
         }
     }

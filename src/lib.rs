@@ -7,3 +7,9 @@ macro_rules! size_of {
     };
 }
 pub(crate) use size_of;
+
+#[allow(dead_code)]
+pub(crate) type HashMap<K, V> = ahash::AHashMap<K, V>;
+
+#[allow(dead_code)]
+pub(crate) type HashSet<T> = ahash::AHashSet<T>;

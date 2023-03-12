@@ -2,6 +2,7 @@ struct Globals {
     input_color: vec4<f32>,
     output_color: vec4<f32>,
     bidirectional_color: vec4<f32>,
+    passive_color: vec4<f32>,
     resolution: vec2<f32>,
     offset: vec2<f32>,
     zoom: f32,
@@ -18,6 +19,7 @@ struct VertexInput {
 struct InstanceInput {
     @location(1) offset: vec2<f32>,
     @location(2) kind: u32,
+    @location(3) size: f32,
 };
 
 struct VertexOutput {
@@ -27,7 +29,7 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
-    let local_position = vertex.position + instance.offset;
+    let local_position = (vertex.position * instance.size) + instance.offset;
     let world_position = (local_position - globals.offset) * globals.zoom;
     let clip_position = (world_position / globals.resolution) * vec2<f32>(2.0, 2.0);
 
@@ -41,6 +43,9 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
         }
         case 2u: {
             color = globals.bidirectional_color;
+        }
+        case 3u: {
+            color = globals.passive_color;
         }
     }
 
