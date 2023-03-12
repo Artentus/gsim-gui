@@ -346,6 +346,8 @@ impl eframe::App for App {
                             circuit.update_selection([rel_pos.x, rel_pos.y]);
                         }
                     }
+                } else if ui.input(|state| state.pointer.button_released(PointerButton::Primary)) {
+                    circuit.end_drag();
                 }
 
                 const ZOOM_LEVELS: f32 = 10.0;

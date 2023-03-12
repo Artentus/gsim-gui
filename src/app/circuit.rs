@@ -58,6 +58,8 @@ pub struct Circuit {
     drag_start: [i32; 2],
     #[serde(skip)]
     drag_delta: [f32; 2],
+    #[serde(skip)]
+    create_wire: Option<usize>,
 }
 
 impl Circuit {
@@ -72,6 +74,7 @@ impl Circuit {
             selection: Selection::None,
             drag_start: [0; 2],
             drag_delta: [0.0; 2],
+            create_wire: None,
         }
     }
 
@@ -120,11 +123,6 @@ impl Circuit {
         &self.wire_segments
     }
 
-    pub fn add_wire_segment(&mut self, segment: WireSegment) {
-        self.selection = Selection::WireSegment(self.wire_segments.len());
-        self.wire_segments.push(segment);
-    }
-
     pub fn update_selection(&mut self, pos: [f32; 2]) {
         let logical_pos = [
             pos[0] / (self.zoom * BASE_ZOOM) - self.offset[0],
@@ -132,29 +130,55 @@ impl Circuit {
         ];
 
         self.selection = Selection::None;
+        self.drag_start = [logical_pos[0].round() as i32, logical_pos[1].round() as i32];
+        self.drag_delta = [0.0; 2];
+        self.create_wire = None;
+
         for (i, component) in self.components.iter().enumerate() {
             if component.bounding_box().contains(logical_pos) {
                 self.selection = Selection::Component(i);
                 self.drag_start = component.position;
-                self.drag_delta = [0.0; 2];
                 break;
             }
         }
     }
 
     pub fn drag_selection(&mut self, delta: [f32; 2]) {
-        match self.selection {
-            Selection::None => {}
-            Selection::Component(selected_component) => {
-                self.drag_delta[0] += delta[0];
-                self.drag_delta[1] += delta[1];
+        self.drag_delta[0] += delta[0];
+        self.drag_delta[1] += delta[1];
 
+        match self.selection {
+            Selection::None => {
+                let create_wire = if let Some(create_wire) = self.create_wire {
+                    &mut self.wire_segments[create_wire]
+                } else {
+                    self.create_wire = Some(self.wire_segments.len());
+                    println!("Created wire at {:?}", self.drag_start);
+
+                    self.wire_segments.push(WireSegment {
+                        point_a: self.drag_start,
+                        point_b: self.drag_start,
+                    });
+
+                    self.wire_segments.last_mut().unwrap()
+                };
+
+                create_wire.point_b[0] = self.drag_start[0] + (self.drag_delta[0].round() as i32);
+                create_wire.point_b[1] = self.drag_start[1] + (self.drag_delta[1].round() as i32);
+            }
+            Selection::Component(selected_component) => {
                 let component = &mut self.components[selected_component];
                 component.position[0] = self.drag_start[0] + (self.drag_delta[0].round() as i32);
                 component.position[1] = self.drag_start[1] + (self.drag_delta[1].round() as i32);
             }
             Selection::WireSegment(_) => { /* TODO: */ }
         }
+    }
+
+    pub fn end_drag(&mut self) {
+        self.drag_start = [0; 2];
+        self.drag_delta = [0.0; 2];
+        self.create_wire = None;
     }
 
     pub fn update_component_properties<'a>(
