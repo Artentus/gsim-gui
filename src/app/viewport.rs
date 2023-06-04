@@ -282,6 +282,7 @@ pub struct ViewportColors {
     pub background_color: [f32; 4],
     pub grid_color: [f32; 4],
     pub component_color: [f32; 4],
+    pub selected_component_color: [f32; 4],
 }
 
 pub struct Viewport {
@@ -491,44 +492,58 @@ impl Viewport {
         &mut self,
         render_state: &RenderState,
         circuit: &Circuit,
-        filter: impl Fn(&&Component) -> bool,
+        filter: impl Fn(&Component) -> bool,
         geometry: &(Geometry, Geometry),
         stroke_color: [f32; 4],
+        selected_stroke_color: [f32; 4],
         fill_color: [f32; 4],
     ) {
-        let mut instances: Vec<_> = circuit
+        let mut stroke_instances = Vec::new();
+        let mut fill_instances = Vec::new();
+        for (i, c) in circuit
             .components()
             .iter()
-            .filter(filter)
-            .map(|c| Instance {
+            .enumerate()
+            .filter(|&(_, c)| filter(c))
+        {
+            let selected = circuit.selection().contains_component(i);
+
+            stroke_instances.push(Instance {
+                offset: c.position.map(|x| x as f32),
+                rotation: c.rotation as u32,
+                mirrored: c.mirrored as u32,
+                color: if selected {
+                    selected_stroke_color
+                } else {
+                    stroke_color
+                },
+            });
+
+            fill_instances.push(Instance {
                 offset: c.position.map(|x| x as f32),
                 rotation: c.rotation as u32,
                 mirrored: c.mirrored as u32,
                 color: fill_color,
-            })
-            .collect();
-
-        if instances.len() == 0 {
-            return;
+            });
         }
 
-        self.draw_primitives(
-            render_state,
-            &geometry.1.vertices,
-            &instances,
-            &geometry.1.indices,
-        );
-
-        for instance in instances.iter_mut() {
-            instance.color = stroke_color;
+        if fill_instances.len() > 0 {
+            self.draw_primitives(
+                render_state,
+                &geometry.1.vertices,
+                &fill_instances,
+                &geometry.1.indices,
+            );
         }
 
-        self.draw_primitives(
-            render_state,
-            &geometry.0.vertices,
-            &instances,
-            &geometry.0.indices,
-        );
+        if stroke_instances.len() > 0 {
+            self.draw_primitives(
+                render_state,
+                &geometry.0.vertices,
+                &stroke_instances,
+                &geometry.0.indices,
+            );
+        }
     }
 
     pub fn draw(
@@ -570,6 +585,7 @@ impl Viewport {
                 |c| matches!(c.kind, ComponentKind::AndGate { .. }),
                 &GeometryStore::instance(&render_state.device).and_gate_geometry,
                 colors.component_color,
+                colors.selected_component_color,
                 colors.background_color,
             );
 

@@ -101,6 +101,15 @@ impl Rotation {
         Rotation::Deg270,
     ];
 
+    pub fn next(self) -> Self {
+        match self {
+            Rotation::Deg0 => Rotation::Deg90,
+            Rotation::Deg90 => Rotation::Deg180,
+            Rotation::Deg180 => Rotation::Deg270,
+            Rotation::Deg270 => Rotation::Deg0,
+        }
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Rotation::Deg0 => "0°",

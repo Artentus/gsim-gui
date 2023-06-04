@@ -1,6 +1,7 @@
 use super::component::*;
 use super::locale::*;
 use super::viewport::BASE_ZOOM;
+use crate::HashSet;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
@@ -37,11 +38,35 @@ pub struct WireSegment {
 }
 
 #[derive(Default)]
-enum Selection {
+pub enum Selection {
     #[default]
     None,
     Component(usize),
     WireSegment(usize),
+    Multi {
+        components: HashSet<usize>,
+        wire_segments: HashSet<usize>,
+    },
+}
+
+impl Selection {
+    pub fn contains_component(&self, component: usize) -> bool {
+        match self {
+            Selection::None => false,
+            &Selection::Component(c) => c == component,
+            Selection::WireSegment(_) => false,
+            Selection::Multi { components, .. } => components.contains(&component),
+        }
+    }
+
+    pub fn contains_wire_segment(&self, segment: usize) -> bool {
+        match self {
+            Selection::None => false,
+            Selection::Component(_) => false,
+            &Selection::WireSegment(s) => s == segment,
+            Selection::Multi { wire_segments, .. } => wire_segments.contains(&segment),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -123,10 +148,15 @@ impl Circuit {
         &self.wire_segments
     }
 
+    #[inline]
+    pub fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
     pub fn update_selection(&mut self, pos: [f32; 2]) {
         let logical_pos = [
-            pos[0] / (self.zoom * BASE_ZOOM) - self.offset[0],
-            pos[1] / (self.zoom * BASE_ZOOM) - self.offset[1],
+            pos[0] / (self.zoom * BASE_ZOOM) + self.offset[0],
+            pos[1] / (self.zoom * BASE_ZOOM) + self.offset[1],
         ];
 
         self.selection = Selection::None;
@@ -143,15 +173,43 @@ impl Circuit {
         }
     }
 
+    pub fn rotate_selection(&mut self) {
+        match &self.selection {
+            Selection::None => {}
+            &Selection::Component(selected_component) => {
+                let component = &mut self.components[selected_component];
+                component.rotation = component.rotation.next();
+            }
+            Selection::WireSegment(_) => {}
+            Selection::Multi { .. } => { /* TODO: */ }
+        }
+    }
+
+    pub fn mirror_selection(&mut self) {
+        match &self.selection {
+            Selection::None => {}
+            &Selection::Component(selected_component) => {
+                let component = &mut self.components[selected_component];
+                component.mirrored = !component.mirrored;
+            }
+            Selection::WireSegment(_) => {}
+            Selection::Multi { .. } => { /* TODO: */ }
+        }
+    }
+
     pub fn drag_selection(&mut self, delta: [f32; 2]) {
         self.drag_delta[0] += delta[0];
         self.drag_delta[1] += delta[1];
 
-        match self.selection {
+        match &self.selection {
             Selection::None => {
                 let create_wire = if let Some(create_wire) = self.create_wire {
                     &mut self.wire_segments[create_wire]
                 } else {
+                    if (self.drag_delta[0].abs() < 1.0) && (self.drag_delta[1].abs() < 1.0) {
+                        return;
+                    }
+
                     self.create_wire = Some(self.wire_segments.len());
                     println!("Created wire at {:?}", self.drag_start);
 
@@ -166,12 +224,13 @@ impl Circuit {
                 create_wire.point_b[0] = self.drag_start[0] + (self.drag_delta[0].round() as i32);
                 create_wire.point_b[1] = self.drag_start[1] + (self.drag_delta[1].round() as i32);
             }
-            Selection::Component(selected_component) => {
+            &Selection::Component(selected_component) => {
                 let component = &mut self.components[selected_component];
                 component.position[0] = self.drag_start[0] + (self.drag_delta[0].round() as i32);
                 component.position[1] = self.drag_start[1] + (self.drag_delta[1].round() as i32);
             }
             Selection::WireSegment(_) => { /* TODO: */ }
+            Selection::Multi { .. } => {}
         }
     }
 
@@ -187,13 +246,13 @@ impl Circuit {
         locale_manager: &LocaleManager,
         lang: &LangId,
     ) {
-        match self.selection {
+        match &self.selection {
             Selection::None => {}
-            Selection::Component(selected_component) => {
+            &Selection::Component(selected_component) => {
                 ui.heading(locale_manager.get(lang, "properties-header"));
                 self.components[selected_component].update_properties(ui, locale_manager, lang);
             }
-            Selection::WireSegment(selected_segment) => {
+            &Selection::WireSegment(selected_segment) => {
                 ui.heading(locale_manager.get(lang, "properties-header"));
 
                 let segment = &mut self.wire_segments[selected_segment];
@@ -238,6 +297,7 @@ impl Circuit {
                     }
                 });
             }
+            Selection::Multi { .. } => {}
         }
     }
 }

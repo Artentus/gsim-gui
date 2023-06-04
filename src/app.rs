@@ -313,6 +313,7 @@ impl eframe::App for App {
             let background_color: Rgba = ui.visuals().extreme_bg_color.into();
             let grid_color: Rgba = ui.visuals().weak_text_color().into();
             let component_color: Rgba = ui.visuals().text_color().into();
+            let selected_component_color: Rgba = ui.visuals().strong_text_color().into();
 
             viewport.draw(
                 render_state,
@@ -321,6 +322,7 @@ impl eframe::App for App {
                     background_color: background_color.to_array(),
                     grid_color: grid_color.to_array(),
                     component_color: component_color.to_array(),
+                    selected_component_color: selected_component_color.to_array(),
                 },
             );
 
@@ -346,8 +348,14 @@ impl eframe::App for App {
                             circuit.update_selection([rel_pos.x, rel_pos.y]);
                         }
                     }
-                } else if ui.input(|state| state.pointer.button_released(PointerButton::Primary)) {
-                    circuit.end_drag();
+                }
+
+                if ui.input(|state| state.key_pressed(Key::R)) {
+                    circuit.rotate_selection();
+                }
+
+                if ui.input(|state| state.key_pressed(Key::M)) {
+                    circuit.mirror_selection();
                 }
 
                 const ZOOM_LEVELS: f32 = 10.0;
@@ -370,6 +378,10 @@ impl eframe::App for App {
                         ];
                         circuit.set_offset(new_offset);
                     }
+                }
+
+                if ui.input(|state| state.pointer.button_released(PointerButton::Primary)) {
+                    circuit.end_drag();
                 }
             }
         });
