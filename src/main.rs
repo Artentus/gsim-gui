@@ -19,12 +19,14 @@ fn main() {
 
     let web_options = eframe::WebOptions::default();
     wasm_bindgen_futures::spawn_local(async {
-        eframe::start_web(
-            "app_canvas",
-            web_options,
-            Box::new(|cc| Box::new(gsim_gui::App::new(cc))),
-        )
-        .await
-        .expect("failed to start eframe");
+        let runner = eframe::WebRunner::new();
+        runner
+            .start(
+                "app_canvas",
+                web_options,
+                Box::new(|cc| Box::new(gsim_gui::App::new(cc))),
+            )
+            .await
+            .expect("failed to start eframe");
     });
 }
