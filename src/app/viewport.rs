@@ -19,6 +19,9 @@ use wire::*;
 mod anchor;
 use anchor::*;
 
+mod selection_box;
+use selection_box::*;
+
 macro_rules! shader {
     ($device:expr, $name:literal) => {{
         const SOURCE: &str = include_str!(concat!(
@@ -302,6 +305,7 @@ pub struct Viewport {
     grid: ViewportGrid,
     wires: ViewportWires,
     anchors: ViewportAnchors,
+    selection_box: ViewportSelectionBox,
 }
 
 impl Viewport {
@@ -413,6 +417,7 @@ impl Viewport {
         let grid = ViewportGrid::create(render_state);
         let wires = ViewportWires::create(render_state);
         let anchors = ViewportAnchors::create(render_state);
+        let selection_box = ViewportSelectionBox::create(render_state);
 
         Self {
             _shader: shader,
@@ -430,6 +435,7 @@ impl Viewport {
             grid,
             wires,
             anchors,
+            selection_box,
         }
     }
 
@@ -608,6 +614,19 @@ impl Viewport {
                 offset,
                 zoom,
             );
+
+            if let Some((box_a, box_b)) = circuit.selection_box() {
+                self.selection_box.draw(
+                    render_state,
+                    &self.ms_texture_view,
+                    resolution,
+                    offset,
+                    zoom,
+                    box_a,
+                    box_b,
+                    colors.selected_component_color,
+                );
+            }
         }
 
         render_state.resolve_pass(&self.ms_texture_view, &self.texture_view);

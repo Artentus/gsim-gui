@@ -238,6 +238,17 @@ impl Circuit {
         &self.selection
     }
 
+    #[inline]
+    pub fn selection_box(&self) -> Option<(Vec2f, Vec2f)> {
+        match self.drag_state {
+            DragState::DrawingBoxSelection {
+                drag_start,
+                drag_delta,
+            } => Some((drag_start, drag_start + drag_delta)),
+            _ => None,
+        }
+    }
+
     fn hit_test(&self, logical_pos: Vec2f) -> HitTestResult {
         for (i, component) in self.components.iter().enumerate() {
             if component.bounding_box().contains(logical_pos) {

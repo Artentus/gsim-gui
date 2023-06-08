@@ -65,6 +65,7 @@ pub struct App {
 
     circuits: Vec<Circuit>,
     selected_circuit: Option<usize>,
+    drag_mode: DragMode,
 }
 
 impl App {
@@ -98,6 +99,7 @@ impl App {
 
             circuits: vec![],
             selected_circuit: None,
+            drag_mode: DragMode::default(),
         }
     }
 }
@@ -183,6 +185,11 @@ impl eframe::App for App {
         });
 
         SidePanel::left("component_picker").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut self.drag_mode, DragMode::BoxSelection, "Select");
+                ui.radio_value(&mut self.drag_mode, DragMode::DrawWire, "Draw Wires");
+            });
+
             ui.heading(self.locale_manager.get(&self.state.lang, "logic-header"));
 
             ui.horizontal(|ui| {
@@ -370,7 +377,7 @@ impl eframe::App for App {
                 let mouse_delta = ui.input(|state| state.pointer.delta());
                 let mouse_delta = mouse_delta / (circuit.zoom() * BASE_ZOOM);
                 let mouse_delta = Vec2f::new(mouse_delta.x, -mouse_delta.y);
-                circuit.mouse_moved(mouse_delta, DragMode::DrawWire);
+                circuit.mouse_moved(mouse_delta, self.drag_mode);
 
                 if response.dragged() {
                     if ui.input(|state| state.pointer.button_down(PointerButton::Middle)) {
