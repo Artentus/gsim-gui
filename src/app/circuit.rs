@@ -224,17 +224,21 @@ impl Circuit {
         'search: {
             for (i, component) in self.components.iter().enumerate() {
                 if component.bounding_box().contains(logical_pos) {
-                    if self.selection.contains_component(i) {
-                        break 'search;
+                    if !self.selection.contains_component(i) {
+                        self.selection = Selection::Component(i);
                     }
+
+                    break 'search;
                 }
             }
 
             for (i, wire_segment) in self.wire_segments.iter().enumerate() {
                 if wire_segment.contains(logical_pos) {
-                    if self.selection.contains_wire_segment(i) {
-                        break 'search;
+                    if !self.selection.contains_wire_segment(i) {
+                        self.selection = Selection::WireSegment(i);
                     }
+
+                    break 'search;
                 }
             }
 
