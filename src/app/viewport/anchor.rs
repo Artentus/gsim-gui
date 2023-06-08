@@ -37,9 +37,9 @@ struct Instance {
 const VERTEX_COUNT: usize = 24;
 
 fn vertices() -> &'static [Vertex; VERTEX_COUNT + 1] {
-    use once_cell::sync::OnceCell;
+    use std::sync::OnceLock;
 
-    static VERTICES: OnceCell<[Vertex; VERTEX_COUNT + 1]> = OnceCell::new();
+    static VERTICES: OnceLock<[Vertex; VERTEX_COUNT + 1]> = OnceLock::new();
     VERTICES.get_or_init(|| {
         let mut vertices = [Vertex {
             position: Vec2f::default(),

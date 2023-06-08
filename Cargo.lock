@@ -945,7 +945,6 @@ dependencies = [
  "gsim",
  "image",
  "lyon",
- "once_cell",
  "serde",
  "smallvec",
  "tracing",

@@ -3,8 +3,8 @@ use super::locale::*;
 use super::viewport::BASE_ZOOM;
 use crate::app::math::*;
 use crate::HashSet;
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 const MIN_LINEAR_ZOOM: f32 = 0.0;
 const MAX_LINEAR_ZOOM: f32 = 1.0;
@@ -14,11 +14,11 @@ pub const DEFAULT_ZOOM: f32 = 1.0;
 
 // Note: these should be constants but `ln` and `exp` are not constant functions
 fn zoom_fn_a() -> f32 {
-    static ZOOM_FN_A: OnceCell<f32> = OnceCell::new();
+    static ZOOM_FN_A: OnceLock<f32> = OnceLock::new();
     *ZOOM_FN_A.get_or_init(|| MIN_ZOOM * (-zoom_fn_b() * MIN_LINEAR_ZOOM).exp())
 }
 fn zoom_fn_b() -> f32 {
-    static ZOOM_FN_B: OnceCell<f32> = OnceCell::new();
+    static ZOOM_FN_B: OnceLock<f32> = OnceLock::new();
     *ZOOM_FN_B.get_or_init(|| (MAX_ZOOM / MIN_ZOOM).ln() / (MAX_LINEAR_ZOOM - MIN_LINEAR_ZOOM))
 }
 
@@ -222,7 +222,6 @@ impl Circuit {
                     }
 
                     self.create_wire = Some(self.wire_segments.len());
-                    println!("Created wire at {:?}", self.drag_start);
 
                     self.wire_segments.push(WireSegment {
                         point_a: self.drag_start,

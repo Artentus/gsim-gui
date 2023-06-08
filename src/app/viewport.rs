@@ -270,9 +270,9 @@ struct GeometryStore {
 
 impl GeometryStore {
     fn instance(device: &Device) -> &'static Self {
-        use once_cell::sync::OnceCell;
+        use std::sync::OnceLock;
 
-        static INSTANCE: OnceCell<GeometryStore> = OnceCell::new();
+        static INSTANCE: OnceLock<GeometryStore> = OnceLock::new();
         INSTANCE.get_or_init(|| GeometryStore {
             and_gate_geometry: build_and_gate_geometry(device),
         })
