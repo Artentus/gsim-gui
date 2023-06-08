@@ -1,5 +1,6 @@
 use super::circuit::*;
 use super::component::*;
+use crate::app::math::*;
 use crate::size_of;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
@@ -102,21 +103,21 @@ impl RenderStateEx for RenderState {
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 struct Globals {
-    resolution: [f32; 2],
-    offset: [f32; 2],
+    resolution: Vec2f,
+    offset: Vec2f,
     zoom: f32,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 struct Vertex {
-    position: [f32; 2],
+    position: Vec2f,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 struct Instance {
-    offset: [f32; 2],
+    offset: Vec2f,
     rotation: u32,
     mirrored: u32,
     color: [f32; 4],
@@ -243,7 +244,7 @@ fn build_and_gate_geometry(device: &Device) -> (Geometry, Geometry) {
                 .with_line_width(2.0 * LOGICAL_PIXEL_SIZE)
                 .with_tolerance(GEOMETRY_TOLERANCE),
             &mut BuffersBuilder::new(&mut stroke_geometry, |v: StrokeVertex| Vertex {
-                position: v.position().to_array(),
+                position: v.position().into(),
             }),
         )
         .expect("failed to tessellate path");
@@ -255,7 +256,7 @@ fn build_and_gate_geometry(device: &Device) -> (Geometry, Geometry) {
             &path,
             &FillOptions::DEFAULT.with_tolerance(GEOMETRY_TOLERANCE),
             &mut BuffersBuilder::new(&mut fill_geometry, |v: FillVertex| Vertex {
-                position: v.position().to_array(),
+                position: v.position().into(),
             }),
         )
         .expect("failed to tessellate path");
@@ -509,7 +510,7 @@ impl Viewport {
             let selected = circuit.selection().contains_component(i);
 
             stroke_instances.push(Instance {
-                offset: c.position.map(|x| x as f32),
+                offset: c.position.to_vec2f(),
                 rotation: c.rotation as u32,
                 mirrored: c.mirrored as u32,
                 color: if selected {
@@ -520,7 +521,7 @@ impl Viewport {
             });
 
             fill_instances.push(Instance {
-                offset: c.position.map(|x| x as f32),
+                offset: c.position.to_vec2f(),
                 rotation: c.rotation as u32,
                 mirrored: c.mirrored as u32,
                 color: fill_color,
@@ -554,15 +555,16 @@ impl Viewport {
     ) {
         let width = self.texture.width() as f32;
         let height = self.texture.height() as f32;
+        let resolution = Vec2f::new(width, height);
 
         let (offset, zoom) = circuit
             .map(|c| (c.offset(), c.zoom()))
-            .unwrap_or(([0.0; 2], DEFAULT_ZOOM));
+            .unwrap_or((Vec2f::default(), DEFAULT_ZOOM));
 
         self.grid.draw(
             render_state,
             &self.ms_texture_view,
-            [width, height],
+            resolution,
             offset,
             zoom,
             colors.background_color,
@@ -572,7 +574,7 @@ impl Viewport {
         self.global_buffer.write(
             &render_state.queue,
             &[Globals {
-                resolution: [width, height],
+                resolution,
                 offset,
                 zoom: zoom * BASE_ZOOM,
             }],
@@ -593,7 +595,7 @@ impl Viewport {
                 render_state,
                 &self.ms_texture_view,
                 circuit,
-                [width, height],
+                resolution,
                 offset,
                 zoom,
             );
@@ -602,7 +604,7 @@ impl Viewport {
                 render_state,
                 &self.ms_texture_view,
                 circuit,
-                [width, height],
+                resolution,
                 offset,
                 zoom,
             );

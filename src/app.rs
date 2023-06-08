@@ -1,6 +1,9 @@
 use egui::*;
 use serde::{Deserialize, Serialize};
 
+mod math;
+use math::*;
+
 #[macro_use]
 mod theme;
 use theme::*;
@@ -345,7 +348,7 @@ impl eframe::App for App {
                             rel_pos.y = viewport_rect.height() - rel_pos.y;
                             rel_pos -= response.rect.size() * 0.5;
 
-                            circuit.update_selection([rel_pos.x, rel_pos.y]);
+                            circuit.update_selection(rel_pos.into());
                         }
                     }
                 }
@@ -365,17 +368,17 @@ impl eframe::App for App {
                 if response.dragged() {
                     if ui.input(|state| state.pointer.button_down(PointerButton::Primary)) {
                         let drag_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
-                        let delta = [drag_delta.x, -drag_delta.y];
+                        let delta = Vec2f::new(drag_delta.x, -drag_delta.y);
                         circuit.drag_selection(delta);
                     } else if ui.input(|state| {
                         state.pointer.button_down(PointerButton::Secondary)
                             | state.pointer.button_down(PointerButton::Middle)
                     }) {
                         let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
-                        let new_offset = [
-                            circuit.offset()[0] - offset_delta.x,
-                            circuit.offset()[1] + offset_delta.y,
-                        ];
+                        let new_offset = Vec2f::new(
+                            circuit.offset().x - offset_delta.x,
+                            circuit.offset().y + offset_delta.y,
+                        );
                         circuit.set_offset(new_offset);
                     }
                 }

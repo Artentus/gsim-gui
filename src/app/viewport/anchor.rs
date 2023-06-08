@@ -2,6 +2,7 @@ use super::buffer::*;
 use super::{shader, RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::circuit::Circuit;
 use crate::app::component::AnchorKind;
+use crate::app::math::*;
 use crate::{size_of, HashSet};
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
@@ -14,21 +15,21 @@ struct Globals {
     output_color: [f32; 4],
     bidirectional_color: [f32; 4],
     passive_color: [f32; 4],
-    resolution: [f32; 2],
-    offset: [f32; 2],
+    resolution: Vec2f,
+    offset: Vec2f,
     zoom: f32,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 pub struct Vertex {
-    position: [f32; 2],
+    position: Vec2f,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 struct Instance {
-    offset: [f32; 2],
+    offset: Vec2f,
     kind: u32,
     size: f32,
 }
@@ -40,11 +41,15 @@ fn vertices() -> &'static [Vertex; VERTEX_COUNT + 1] {
 
     static VERTICES: OnceCell<[Vertex; VERTEX_COUNT + 1]> = OnceCell::new();
     VERTICES.get_or_init(|| {
-        let mut vertices = [Vertex { position: [0.0; 2] }; VERTEX_COUNT + 1];
+        let mut vertices = [Vertex {
+            position: Vec2f::default(),
+        }; VERTEX_COUNT + 1];
         for i in 0..VERTEX_COUNT {
             let angle = ((i as f32) / (VERTEX_COUNT as f32)) * std::f32::consts::TAU;
             let (y, x) = angle.sin_cos();
-            vertices[i] = Vertex { position: [x, y] };
+            vertices[i] = Vertex {
+                position: Vec2f::new(x, y),
+            };
         }
         vertices
     })
@@ -203,8 +208,8 @@ impl ViewportAnchors {
         render_state: &RenderState,
         texture_view: &TextureView,
         circuit: &Circuit,
-        resolution: [f32; 2],
-        offset: [f32; 2],
+        resolution: Vec2f,
+        offset: Vec2f,
         zoom: f32,
     ) {
         let mut segment_end_points = HashSet::default();
@@ -216,7 +221,7 @@ impl ViewportAnchors {
         let mut instances = Vec::new();
         for point in segment_end_points {
             instances.push(Instance {
-                offset: [point[0] as f32, point[1] as f32],
+                offset: point.to_vec2f(),
                 kind: AnchorKind::Passive as u32,
                 size: LOGICAL_PIXEL_SIZE,
             });
@@ -224,7 +229,7 @@ impl ViewportAnchors {
         for component in circuit.components() {
             for anchor in component.anchors() {
                 instances.push(Instance {
-                    offset: [anchor.position[0] as f32, anchor.position[1] as f32],
+                    offset: anchor.position.to_vec2f(),
                     kind: anchor.kind as u32,
                     size: LOGICAL_PIXEL_SIZE * 2.0,
                 });

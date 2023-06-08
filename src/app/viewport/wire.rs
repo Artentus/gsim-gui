@@ -1,6 +1,7 @@
 use super::buffer::*;
 use super::{shader, RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::circuit::Circuit;
+use crate::app::math::*;
 use crate::size_of;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
@@ -11,15 +12,15 @@ use wgpu::*;
 struct Globals {
     color: [f32; 4],
     selected_color: [f32; 4],
-    resolution: [f32; 2],
-    offset: [f32; 2],
+    resolution: Vec2f,
+    offset: Vec2f,
     zoom: f32,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 pub struct Vertex {
-    position: [f32; 2],
+    position: Vec2f,
     selected: u32,
 }
 
@@ -164,8 +165,8 @@ impl ViewportWires {
         render_state: &RenderState,
         texture_view: &TextureView,
         circuit: &Circuit,
-        resolution: [f32; 2],
-        offset: [f32; 2],
+        resolution: Vec2f,
+        offset: Vec2f,
         zoom: f32,
     ) {
         self.global_buffer.write(
@@ -182,30 +183,28 @@ impl ViewportWires {
         let mut count = 0;
         let mut vertices = Vec::with_capacity(BATCH_SIZE * 4);
         for (i, segment) in circuit.wire_segments().iter().enumerate() {
-            let a = [segment.point_a[0] as f32, segment.point_a[1] as f32];
-            let b = [segment.point_b[0] as f32, segment.point_b[1] as f32];
-            let dir = [b[0] - a[0], b[1] - a[1]];
-            let dir_len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
-            let dir = [dir[0] / dir_len, dir[1] / dir_len];
-            let left = [dir[1] * LOGICAL_PIXEL_SIZE, -dir[0] * LOGICAL_PIXEL_SIZE];
-            let right = [-dir[1] * LOGICAL_PIXEL_SIZE, dir[0] * LOGICAL_PIXEL_SIZE];
+            let a = segment.point_a.to_vec2f();
+            let b = segment.point_b.to_vec2f();
+            let dir = (b - a).normalized();
+            let left = Vec2f::new(dir.y, -dir.x) * LOGICAL_PIXEL_SIZE;
+            let right = Vec2f::new(-dir.y, dir.x) * LOGICAL_PIXEL_SIZE;
 
             let selected = circuit.selection().contains_wire_segment(i);
 
             vertices.push(Vertex {
-                position: [a[0] + left[0], a[1] + left[1]],
+                position: a + left,
                 selected: selected as u32,
             });
             vertices.push(Vertex {
-                position: [a[0] + right[0], a[1] + right[1]],
+                position: a + right,
                 selected: selected as u32,
             });
             vertices.push(Vertex {
-                position: [b[0] + left[0], b[1] + left[1]],
+                position: b + left,
                 selected: selected as u32,
             });
             vertices.push(Vertex {
-                position: [b[0] + right[0], b[1] + right[1]],
+                position: b + right,
                 selected: selected as u32,
             });
 

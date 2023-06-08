@@ -1,4 +1,5 @@
 use super::locale::*;
+use crate::app::math::*;
 use egui::*;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -12,8 +13,8 @@ pub struct BoundingBox {
 }
 
 impl BoundingBox {
-    pub fn contains(&self, p: [f32; 2]) -> bool {
-        (p[0] >= self.left) && (p[0] <= self.right) && (p[1] >= self.bottom) && (p[1] <= self.top)
+    pub fn contains(&self, p: Vec2f) -> bool {
+        (p.x >= self.left) && (p.x <= self.right) && (p.y >= self.bottom) && (p.y <= self.top)
     }
 }
 
@@ -28,7 +29,7 @@ pub enum AnchorKind {
 
 #[derive(Clone, Copy)]
 pub struct Anchor {
-    pub position: [i32; 2],
+    pub position: Vec2i,
     pub kind: AnchorKind,
 }
 
@@ -36,7 +37,7 @@ macro_rules! anchors {
     ($($kind:ident($x:literal, $y:literal)),* $(,)?) => {
         smallvec::smallvec![$(
             Anchor {
-                position: [$x, $y],
+                position: Vec2i::new($x, $y),
                 kind: AnchorKind::$kind,
             },
         )*]
@@ -123,7 +124,7 @@ impl Rotation {
 #[derive(Serialize, Deserialize)]
 pub struct Component {
     pub kind: ComponentKind,
-    pub position: [i32; 2],
+    pub position: Vec2i,
     pub rotation: Rotation,
     pub mirrored: bool,
 }
@@ -132,7 +133,7 @@ impl Component {
     pub fn new(kind: ComponentKind) -> Self {
         Self {
             kind,
-            position: [0; 2],
+            position: Vec2i::default(),
             rotation: Rotation::default(),
             mirrored: false,
         }
@@ -142,18 +143,17 @@ impl Component {
         let mut anchors = self.kind.anchors();
         for anchor in anchors.iter_mut() {
             if self.mirrored {
-                anchor.position[0] = -anchor.position[0];
+                anchor.position.x = -anchor.position.x;
             }
 
             anchor.position = match self.rotation {
                 Rotation::Deg0 => anchor.position,
-                Rotation::Deg90 => [anchor.position[1], -anchor.position[0]],
-                Rotation::Deg180 => [-anchor.position[0], -anchor.position[1]],
-                Rotation::Deg270 => [-anchor.position[1], anchor.position[0]],
+                Rotation::Deg90 => Vec2i::new(anchor.position.y, -anchor.position.x),
+                Rotation::Deg180 => -anchor.position,
+                Rotation::Deg270 => Vec2i::new(-anchor.position.y, anchor.position.x),
             };
 
-            anchor.position[0] += self.position[0];
-            anchor.position[1] += self.position[1];
+            anchor.position += self.position;
         }
         anchors
     }
@@ -187,10 +187,10 @@ impl Component {
             },
         };
 
-        bb.top += self.position[1] as f32;
-        bb.bottom += self.position[1] as f32;
-        bb.left += self.position[0] as f32;
-        bb.right += self.position[0] as f32;
+        bb.top += self.position.y as f32;
+        bb.bottom += self.position.y as f32;
+        bb.left += self.position.x as f32;
+        bb.right += self.position.x as f32;
 
         bb
     }
@@ -206,20 +206,20 @@ impl Component {
         ui.horizontal(|ui| {
             ui.label("X:");
 
-            let mut x_text = format!("{}", self.position[0]);
+            let mut x_text = format!("{}", self.position.x);
             ui.text_edit_singleline(&mut x_text);
             if let Ok(new_x) = x_text.parse() {
-                self.position[0] = new_x;
+                self.position.x = new_x;
             }
         });
 
         ui.horizontal(|ui| {
             ui.label("Y:");
 
-            let mut y_text = format!("{}", self.position[1]);
+            let mut y_text = format!("{}", self.position.y);
             ui.text_edit_singleline(&mut y_text);
             if let Ok(new_y) = y_text.parse() {
-                self.position[1] = new_y;
+                self.position.y = new_y;
             }
         });
 

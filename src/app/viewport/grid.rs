@@ -1,5 +1,6 @@
 use super::buffer::*;
 use super::{shader, RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
+use crate::app::math::*;
 use crate::size_of;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
@@ -9,49 +10,49 @@ use wgpu::*;
 #[repr(C)]
 struct Globals {
     color: [f32; 4],
-    resolution: [f32; 2],
-    offset: [f32; 2],
+    resolution: Vec2f,
+    offset: Vec2f,
     zoom: f32,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 pub struct Vertex {
-    position: [f32; 2],
+    position: Vec2f,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 struct Instance {
-    offset: [f32; 2],
+    offset: Vec2f,
 }
 
 const VERTICES: [Vertex; 8] = [
     // size 1px
     Vertex {
-        position: [-LOGICAL_PIXEL_SIZE / 2.0, -LOGICAL_PIXEL_SIZE / 2.0],
+        position: Vec2f::new(-LOGICAL_PIXEL_SIZE / 2.0, -LOGICAL_PIXEL_SIZE / 2.0),
     },
     Vertex {
-        position: [-LOGICAL_PIXEL_SIZE / 2.0, LOGICAL_PIXEL_SIZE / 2.0],
+        position: Vec2f::new(-LOGICAL_PIXEL_SIZE / 2.0, LOGICAL_PIXEL_SIZE / 2.0),
     },
     Vertex {
-        position: [LOGICAL_PIXEL_SIZE / 2.0, -LOGICAL_PIXEL_SIZE / 2.0],
+        position: Vec2f::new(LOGICAL_PIXEL_SIZE / 2.0, -LOGICAL_PIXEL_SIZE / 2.0),
     },
     Vertex {
-        position: [LOGICAL_PIXEL_SIZE / 2.0, LOGICAL_PIXEL_SIZE / 2.0],
+        position: Vec2f::new(LOGICAL_PIXEL_SIZE / 2.0, LOGICAL_PIXEL_SIZE / 2.0),
     },
     // size 2px
     Vertex {
-        position: [-LOGICAL_PIXEL_SIZE, -LOGICAL_PIXEL_SIZE],
+        position: Vec2f::new(-LOGICAL_PIXEL_SIZE, -LOGICAL_PIXEL_SIZE),
     },
     Vertex {
-        position: [-LOGICAL_PIXEL_SIZE, LOGICAL_PIXEL_SIZE],
+        position: Vec2f::new(-LOGICAL_PIXEL_SIZE, LOGICAL_PIXEL_SIZE),
     },
     Vertex {
-        position: [LOGICAL_PIXEL_SIZE, -LOGICAL_PIXEL_SIZE],
+        position: Vec2f::new(LOGICAL_PIXEL_SIZE, -LOGICAL_PIXEL_SIZE),
     },
     Vertex {
-        position: [LOGICAL_PIXEL_SIZE, LOGICAL_PIXEL_SIZE],
+        position: Vec2f::new(LOGICAL_PIXEL_SIZE, LOGICAL_PIXEL_SIZE),
     },
 ];
 
@@ -197,8 +198,8 @@ impl ViewportGrid {
         &mut self,
         render_state: &RenderState,
         texture_view: &TextureView,
-        resolution: [f32; 2],
-        offset: [f32; 2],
+        resolution: Vec2f,
+        offset: Vec2f,
         zoom: f32,
         background_color: [f32; 4],
         grid_color: [f32; 4],
@@ -227,13 +228,13 @@ impl ViewportGrid {
 
         let (step, base_vertex) = if zoom > 1.99 { (1, 0) } else { (2, 4) };
 
-        let width = resolution[0] / (zoom * BASE_ZOOM);
-        let height = resolution[1] / (zoom * BASE_ZOOM);
+        let width = resolution.x / (zoom * BASE_ZOOM);
+        let height = resolution.y / (zoom * BASE_ZOOM);
 
-        let left = (offset[0] - (width * 0.5)).floor() as i32;
-        let right = (offset[0] + (width * 0.5)).ceil() as i32;
-        let bottom = (offset[1] - (height * 0.5)).floor() as i32;
-        let top = (offset[1] + (height * 0.5)).ceil() as i32;
+        let left = (offset.x - (width * 0.5)).floor() as i32;
+        let right = (offset.x + (width * 0.5)).ceil() as i32;
+        let bottom = (offset.y - (height * 0.5)).floor() as i32;
+        let top = (offset.y + (height * 0.5)).ceil() as i32;
 
         let x_points = (right - left + 1) as usize;
         let y_points = (top - bottom + 1) as usize;
@@ -242,7 +243,7 @@ impl ViewportGrid {
         for y in (bottom..=top).filter(|&y| (y % step) == 0) {
             for x in (left..=right).filter(|&x| (x % step) == 0) {
                 instances.push(Instance {
-                    offset: [x as f32, y as f32],
+                    offset: Vec2i::new(x, y).to_vec2f(),
                 });
             }
         }
