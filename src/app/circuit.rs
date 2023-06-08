@@ -259,7 +259,6 @@ impl Circuit {
             is_discriminant!(self.drag_state, DragState::None),
             "invalid drag state"
         );
-        self.primary_button_down = true;
 
         let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
         let hit = self.hit_test(logical_pos);
@@ -284,12 +283,41 @@ impl Circuit {
             drag_start: logical_pos,
             drag_delta: Vec2f::default(),
         };
+
+        self.primary_button_down = true;
     }
 
     pub fn primary_button_released(&mut self, pos: Vec2f) {
-        self.primary_button_down = false;
+        if self.primary_button_down {
+            if is_discriminant!(self.drag_state, DragState::None) {
+                let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
+                let hit = self.hit_test(logical_pos);
 
-        if is_discriminant!(self.drag_state, DragState::None) {
+                match hit {
+                    HitTestResult::None => {
+                        self.selection = Selection::None;
+                    }
+                    HitTestResult::Component(component) => {
+                        self.selection = Selection::Component(component);
+                    }
+                    HitTestResult::WireSegment(wire_segment) => {
+                        self.selection = Selection::WireSegment(wire_segment);
+                    }
+                }
+            }
+
+            self.drag_state = DragState::None;
+        }
+
+        self.primary_button_down = false;
+    }
+
+    pub fn secondary_button_pressed(&mut self, _pos: Vec2f) {
+        self.secondary_button_down = true;
+    }
+
+    pub fn secondary_button_released(&mut self, pos: Vec2f) {
+        if self.secondary_button_down {
             let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
             let hit = self.hit_test(logical_pos);
 
@@ -298,48 +326,25 @@ impl Circuit {
                     self.selection = Selection::None;
                 }
                 HitTestResult::Component(component) => {
-                    self.selection = Selection::Component(component);
+                    if !self.selection.contains_component(component) {
+                        self.selection = Selection::Component(component);
+                    }
+
+                    // TODO: show context menu
                 }
                 HitTestResult::WireSegment(wire_segment) => {
-                    self.selection = Selection::WireSegment(wire_segment);
+                    if !self.selection.contains_wire_segment(wire_segment) {
+                        self.selection = Selection::WireSegment(wire_segment);
+                    }
+
+                    // TODO: show context menu
                 }
             }
+
+            self.drag_state = DragState::None;
         }
 
-        self.drag_state = DragState::None;
-    }
-
-    pub fn secondary_button_pressed(&mut self, _pos: Vec2f) {
-        self.secondary_button_down = true;
-    }
-
-    pub fn secondary_button_released(&mut self, pos: Vec2f) {
         self.secondary_button_down = false;
-
-        let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
-        let hit = self.hit_test(logical_pos);
-
-        match hit {
-            HitTestResult::None => {
-                self.selection = Selection::None;
-            }
-            HitTestResult::Component(component) => {
-                if !self.selection.contains_component(component) {
-                    self.selection = Selection::Component(component);
-                }
-
-                // TODO: show context menu
-            }
-            HitTestResult::WireSegment(wire_segment) => {
-                if !self.selection.contains_wire_segment(wire_segment) {
-                    self.selection = Selection::WireSegment(wire_segment);
-                }
-
-                // TODO: show context menu
-            }
-        }
-
-        self.drag_state = DragState::None;
     }
 
     fn move_selection(&mut self, delta: Vec2i) {
