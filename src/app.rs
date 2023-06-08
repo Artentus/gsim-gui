@@ -339,16 +339,18 @@ impl eframe::App for App {
             if let Some(circuit) = selected_circuit {
                 let viewport_rect = response.rect;
 
-                if response.is_pointer_button_down_on()
-                    && ui.input(|state| state.pointer.button_pressed(PointerButton::Primary))
-                {
-                    if let Some(pos) = response.interact_pointer_pos() {
-                        if viewport_rect.contains(pos) {
-                            let mut rel_pos = pos - viewport_rect.min;
-                            rel_pos.y = viewport_rect.height() - rel_pos.y;
-                            rel_pos -= response.rect.size() * 0.5;
+                if let Some(pos) = response.interact_pointer_pos() {
+                    if viewport_rect.contains(pos) {
+                        let mut rel_pos = pos - viewport_rect.min;
+                        rel_pos.y = viewport_rect.height() - rel_pos.y;
+                        rel_pos -= response.rect.size() * 0.5;
 
-                            circuit.update_selection(rel_pos.into());
+                        if ui.input(|state| state.pointer.button_pressed(PointerButton::Primary)) {
+                            circuit.update_selection_primary(rel_pos.into());
+                        } else if ui
+                            .input(|state| state.pointer.button_pressed(PointerButton::Secondary))
+                        {
+                            circuit.update_selection_secondary(rel_pos.into());
                         }
                     }
                 }
@@ -370,10 +372,7 @@ impl eframe::App for App {
                         let drag_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
                         let delta = Vec2f::new(drag_delta.x, -drag_delta.y);
                         circuit.drag_selection(delta);
-                    } else if ui.input(|state| {
-                        state.pointer.button_down(PointerButton::Secondary)
-                            | state.pointer.button_down(PointerButton::Middle)
-                    }) {
+                    } else if ui.input(|state| state.pointer.button_down(PointerButton::Middle)) {
                         let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
                         let new_offset = Vec2f::new(
                             circuit.offset().x - offset_delta.x,

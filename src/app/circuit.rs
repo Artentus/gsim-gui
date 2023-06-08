@@ -193,7 +193,7 @@ impl Circuit {
         &self.selection
     }
 
-    pub fn update_selection(&mut self, pos: Vec2f) {
+    pub fn update_selection_primary(&mut self, pos: Vec2f) {
         let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
 
         self.selection = Selection::None;
@@ -205,7 +205,7 @@ impl Circuit {
             if component.bounding_box().contains(logical_pos) {
                 self.selection = Selection::Component(i);
                 self.drag_start = component.position;
-                break;
+                return;
             }
         }
 
@@ -213,9 +213,36 @@ impl Circuit {
             if wire_segment.contains(logical_pos) {
                 self.selection = Selection::WireSegment(i);
                 self.drag_start = wire_segment.point_a;
-                break;
+                return;
             }
         }
+    }
+
+    pub fn update_selection_secondary(&mut self, pos: Vec2f) {
+        let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
+
+        'search: {
+            for (i, component) in self.components.iter().enumerate() {
+                if component.bounding_box().contains(logical_pos) {
+                    if self.selection.contains_component(i) {
+                        break 'search;
+                    }
+                }
+            }
+
+            for (i, wire_segment) in self.wire_segments.iter().enumerate() {
+                if wire_segment.contains(logical_pos) {
+                    if self.selection.contains_wire_segment(i) {
+                        break 'search;
+                    }
+                }
+            }
+
+            self.selection = Selection::None;
+            return;
+        }
+
+        // TODO: display context menu for selection
     }
 
     pub fn rotate_selection(&mut self) {
