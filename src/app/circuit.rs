@@ -317,6 +317,48 @@ impl Circuit {
                 }
             }
 
+            if let DragState::DrawingBoxSelection {
+                drag_start,
+                drag_delta,
+            } = &self.drag_state
+            {
+                let selection_box = BoundingBox {
+                    top: drag_start.y.max(drag_start.y + drag_delta.y),
+                    bottom: drag_start.y.min(drag_start.y + drag_delta.y),
+                    left: drag_start.x.min(drag_start.x + drag_delta.x),
+                    right: drag_start.x.max(drag_start.x + drag_delta.x),
+                };
+
+                let mut selected_components = HashSet::new();
+                for (i, component) in self.components.iter().enumerate() {
+                    if selection_box.contains(component.position.to_vec2f()) {
+                        selected_components.insert(i);
+                    }
+                }
+
+                let mut selected_wire_segments = HashSet::new();
+                for (i, wire_segment) in self.wire_segments.iter().enumerate() {
+                    if selection_box.contains(wire_segment.point_a.to_vec2f())
+                        || selection_box.contains(wire_segment.point_b.to_vec2f())
+                    {
+                        selected_wire_segments.insert(i);
+                    }
+                }
+
+                if (selected_components.len() == 1) && selected_wire_segments.is_empty() {
+                    self.selection =
+                        Selection::Component(selected_components.into_iter().next().unwrap());
+                } else if selected_components.is_empty() && (selected_wire_segments.len() == 1) {
+                    self.selection =
+                        Selection::WireSegment(selected_wire_segments.into_iter().next().unwrap());
+                } else if !selected_components.is_empty() && !selected_wire_segments.is_empty() {
+                    self.selection = Selection::Multi {
+                        components: selected_components,
+                        wire_segments: selected_wire_segments,
+                    };
+                }
+            }
+
             self.drag_state = DragState::None;
         }
 
