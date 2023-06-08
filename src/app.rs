@@ -346,11 +346,11 @@ impl eframe::App for App {
                         rel_pos -= response.rect.size() * 0.5;
 
                         if ui.input(|state| state.pointer.button_pressed(PointerButton::Primary)) {
-                            circuit.update_selection_primary(rel_pos.into());
+                            circuit.primary_button_pressed(rel_pos.into());
                         } else if ui
                             .input(|state| state.pointer.button_pressed(PointerButton::Secondary))
                         {
-                            circuit.update_selection_secondary(rel_pos.into());
+                            circuit.secondary_button_pressed(rel_pos.into());
                         }
                     }
                 }
@@ -367,12 +367,13 @@ impl eframe::App for App {
                 let zoom_delta = ui.input(|state| state.scroll_delta.y) / 120.0;
                 circuit.set_linear_zoom(circuit.linear_zoom() + (zoom_delta / ZOOM_LEVELS));
 
+                let mouse_delta = ui.input(|state| state.pointer.delta());
+                let mouse_delta = mouse_delta / (circuit.zoom() * BASE_ZOOM);
+                let mouse_delta = Vec2f::new(mouse_delta.x, -mouse_delta.y);
+                circuit.mouse_moved(mouse_delta, DragMode::DrawWire);
+
                 if response.dragged() {
-                    if ui.input(|state| state.pointer.button_down(PointerButton::Primary)) {
-                        let drag_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
-                        let delta = Vec2f::new(drag_delta.x, -drag_delta.y);
-                        circuit.drag_selection(delta);
-                    } else if ui.input(|state| state.pointer.button_down(PointerButton::Middle)) {
+                    if ui.input(|state| state.pointer.button_down(PointerButton::Middle)) {
                         let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
                         let new_offset = Vec2f::new(
                             circuit.offset().x - offset_delta.x,
@@ -382,8 +383,20 @@ impl eframe::App for App {
                     }
                 }
 
-                if ui.input(|state| state.pointer.button_released(PointerButton::Primary)) {
-                    circuit.end_drag();
+                if let Some(pos) = response.interact_pointer_pos() {
+                    if viewport_rect.contains(pos) {
+                        let mut rel_pos = pos - viewport_rect.min;
+                        rel_pos.y = viewport_rect.height() - rel_pos.y;
+                        rel_pos -= response.rect.size() * 0.5;
+
+                        if ui.input(|state| state.pointer.button_released(PointerButton::Primary)) {
+                            circuit.primary_button_released(rel_pos.into());
+                        } else if ui
+                            .input(|state| state.pointer.button_released(PointerButton::Secondary))
+                        {
+                            circuit.secondary_button_released(rel_pos.into());
+                        }
+                    }
                 }
             }
         });

@@ -109,6 +109,50 @@ impl Selection {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum DragMode {
+    #[default]
+    BoxSelection,
+    DrawWire,
+}
+
+#[derive(Default, Debug)]
+enum DragState {
+    #[default]
+    None,
+    Deadzone {
+        drag_start: Vec2f,
+        drag_delta: Vec2f,
+    },
+    DrawingBoxSelection {
+        drag_start: Vec2f,
+        drag_delta: Vec2f,
+    },
+    DrawingWireSegment {
+        wire_segment: usize,
+        drag_start: Vec2f,
+        drag_delta: Vec2f,
+    },
+    Dragging {
+        fract_drag_delta: Vec2f,
+    },
+}
+
+macro_rules! is_discriminant {
+    ($value:expr, $discriminant:path) => {
+        match &$value {
+            $discriminant { .. } => true,
+            _ => false,
+        }
+    };
+}
+
+enum HitTestResult {
+    None,
+    Component(usize),
+    WireSegment(usize),
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Circuit {
     name: String,
@@ -120,11 +164,11 @@ pub struct Circuit {
     #[serde(skip)]
     selection: Selection,
     #[serde(skip)]
-    drag_start: Vec2i,
+    drag_state: DragState,
     #[serde(skip)]
-    drag_delta: Vec2f,
+    primary_button_down: bool,
     #[serde(skip)]
-    create_wire: Option<usize>,
+    secondary_button_down: bool,
 }
 
 impl Circuit {
@@ -137,9 +181,9 @@ impl Circuit {
             components: vec![],
             wire_segments: vec![],
             selection: Selection::None,
-            drag_start: Vec2i::default(),
-            drag_delta: Vec2f::default(),
-            create_wire: None,
+            drag_state: DragState::None,
+            primary_button_down: false,
+            secondary_button_down: false,
         }
     }
 
@@ -180,6 +224,7 @@ impl Circuit {
 
     pub fn add_component(&mut self, kind: ComponentKind) {
         self.selection = Selection::Component(self.components.len());
+        self.drag_state = DragState::None;
         self.components.push(Component::new(kind));
     }
 
@@ -193,70 +238,276 @@ impl Circuit {
         &self.selection
     }
 
-    pub fn update_selection_primary(&mut self, pos: Vec2f) {
-        let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
-
-        self.selection = Selection::None;
-        self.drag_start = logical_pos.round().to_vec2i();
-        self.drag_delta = Vec2f::default();
-        self.create_wire = None;
-
+    fn hit_test(&self, logical_pos: Vec2f) -> HitTestResult {
         for (i, component) in self.components.iter().enumerate() {
             if component.bounding_box().contains(logical_pos) {
-                self.selection = Selection::Component(i);
-                self.drag_start = component.position;
-                return;
+                return HitTestResult::Component(i);
             }
         }
 
         for (i, wire_segment) in self.wire_segments.iter().enumerate() {
             if wire_segment.contains(logical_pos) {
-                self.selection = Selection::WireSegment(i);
-                self.drag_start = wire_segment.point_a;
-                return;
+                return HitTestResult::WireSegment(i);
+            }
+        }
+
+        HitTestResult::None
+    }
+
+    pub fn primary_button_pressed(&mut self, pos: Vec2f) {
+        assert!(
+            is_discriminant!(self.drag_state, DragState::None),
+            "invalid drag state"
+        );
+        self.primary_button_down = true;
+
+        let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
+        let hit = self.hit_test(logical_pos);
+
+        match hit {
+            HitTestResult::None => {
+                self.selection = Selection::None;
+            }
+            HitTestResult::Component(component) => {
+                if !self.selection.contains_component(component) {
+                    self.selection = Selection::Component(component);
+                }
+            }
+            HitTestResult::WireSegment(wire_segment) => {
+                if !self.selection.contains_wire_segment(wire_segment) {
+                    self.selection = Selection::WireSegment(wire_segment);
+                }
+            }
+        }
+
+        self.drag_state = DragState::Deadzone {
+            drag_start: logical_pos,
+            drag_delta: Vec2f::default(),
+        };
+    }
+
+    pub fn primary_button_released(&mut self, pos: Vec2f) {
+        self.primary_button_down = false;
+
+        if is_discriminant!(self.drag_state, DragState::None) {
+            let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
+            let hit = self.hit_test(logical_pos);
+
+            match hit {
+                HitTestResult::None => {
+                    self.selection = Selection::None;
+                }
+                HitTestResult::Component(component) => {
+                    self.selection = Selection::Component(component);
+                }
+                HitTestResult::WireSegment(wire_segment) => {
+                    self.selection = Selection::WireSegment(wire_segment);
+                }
+            }
+        }
+
+        self.drag_state = DragState::None;
+    }
+
+    pub fn secondary_button_pressed(&mut self, _pos: Vec2f) {
+        self.secondary_button_down = true;
+    }
+
+    pub fn secondary_button_released(&mut self, pos: Vec2f) {
+        self.secondary_button_down = false;
+
+        let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
+        let hit = self.hit_test(logical_pos);
+
+        match hit {
+            HitTestResult::None => {
+                self.selection = Selection::None;
+            }
+            HitTestResult::Component(component) => {
+                if !self.selection.contains_component(component) {
+                    self.selection = Selection::Component(component);
+                }
+
+                // TODO: show context menu
+            }
+            HitTestResult::WireSegment(wire_segment) => {
+                if !self.selection.contains_wire_segment(wire_segment) {
+                    self.selection = Selection::WireSegment(wire_segment);
+                }
+
+                // TODO: show context menu
+            }
+        }
+
+        self.drag_state = DragState::None;
+    }
+
+    fn move_selection(&mut self, delta: Vec2i) {
+        match &self.selection {
+            Selection::None => {}
+            &Selection::Component(component) => {
+                let component = self
+                    .components
+                    .get_mut(component)
+                    .expect("invalid selection");
+
+                component.position += delta;
+            }
+            &Selection::WireSegment(wire_segment) => {
+                let wire_segment = self
+                    .wire_segments
+                    .get_mut(wire_segment)
+                    .expect("invalid selection");
+
+                wire_segment.point_a += delta;
+                wire_segment.point_b += delta;
+            }
+            Selection::Multi {
+                components,
+                wire_segments,
+            } => {
+                for &component in components {
+                    let component = self
+                        .components
+                        .get_mut(component)
+                        .expect("invalid selection");
+
+                    component.position += delta;
+                }
+
+                for &wire_segment in wire_segments {
+                    let wire_segment = self
+                        .wire_segments
+                        .get_mut(wire_segment)
+                        .expect("invalid selection");
+
+                    wire_segment.point_a += delta;
+                    wire_segment.point_b += delta;
+                }
             }
         }
     }
 
-    pub fn update_selection_secondary(&mut self, pos: Vec2f) {
-        let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
+    pub fn mouse_moved(&mut self, delta: Vec2f, drag_mode: DragMode) {
+        if self.primary_button_down && !self.secondary_button_down {
+            match &mut self.drag_state {
+                DragState::None => {}
+                DragState::Deadzone {
+                    drag_start,
+                    drag_delta,
+                } => {
+                    *drag_delta += delta;
 
-        'search: {
-            for (i, component) in self.components.iter().enumerate() {
-                if component.bounding_box().contains(logical_pos) {
-                    if !self.selection.contains_component(i) {
-                        self.selection = Selection::Component(i);
+                    let drag_start = *drag_start;
+                    let drag_delta = *drag_delta;
+
+                    const DEADZONE_RANGE: f32 = 1.0;
+                    if (drag_delta.x.abs() >= DEADZONE_RANGE)
+                        || (drag_delta.y.abs() >= DEADZONE_RANGE)
+                    {
+                        let hit = self.hit_test(drag_start);
+
+                        self.drag_state = match hit {
+                            HitTestResult::None => match drag_mode {
+                                DragMode::BoxSelection => DragState::DrawingBoxSelection {
+                                    drag_start,
+                                    drag_delta,
+                                },
+                                DragMode::DrawWire => {
+                                    let wire_segment = self.wire_segments.len();
+
+                                    self.wire_segments.push(WireSegment {
+                                        point_a: drag_start.to_vec2i(),
+                                        point_b: (drag_start + drag_delta).round().to_vec2i(),
+                                    });
+
+                                    DragState::DrawingWireSegment {
+                                        wire_segment,
+                                        drag_start,
+                                        drag_delta,
+                                    }
+                                }
+                            },
+                            HitTestResult::Component(component) => {
+                                assert!(
+                                    self.selection.contains_component(component),
+                                    "invalid drag state"
+                                );
+
+                                // TODO: already drag whole part of delta
+                                DragState::Dragging {
+                                    fract_drag_delta: drag_delta,
+                                }
+                            }
+                            HitTestResult::WireSegment(wire_segment) => {
+                                assert!(
+                                    self.selection.contains_wire_segment(wire_segment),
+                                    "invalid drag state"
+                                );
+
+                                // TODO: already drag whole part of delta
+                                DragState::Dragging {
+                                    fract_drag_delta: drag_delta,
+                                }
+                            }
+                        };
                     }
+                }
+                DragState::DrawingBoxSelection { drag_delta, .. } => {
+                    *drag_delta += delta;
+                }
+                DragState::DrawingWireSegment {
+                    wire_segment,
+                    drag_start,
+                    drag_delta,
+                } => {
+                    *drag_delta += delta;
 
-                    break 'search;
+                    let wire_segment = self
+                        .wire_segments
+                        .get_mut(*wire_segment)
+                        .expect("invalid drag state");
+                    wire_segment.point_b = (*drag_start + *drag_delta).round().to_vec2i();
+                }
+                DragState::Dragging { fract_drag_delta } => {
+                    assert!(
+                        !is_discriminant!(self.selection, Selection::None),
+                        "invalid drag state"
+                    );
+
+                    *fract_drag_delta += delta;
+                    let whole_drag_delta = fract_drag_delta.round();
+                    *fract_drag_delta -= whole_drag_delta;
+
+                    self.move_selection(whole_drag_delta.to_vec2i());
                 }
             }
-
-            for (i, wire_segment) in self.wire_segments.iter().enumerate() {
-                if wire_segment.contains(logical_pos) {
-                    if !self.selection.contains_wire_segment(i) {
-                        self.selection = Selection::WireSegment(i);
-                    }
-
-                    break 'search;
-                }
-            }
-
-            self.selection = Selection::None;
-            return;
         }
-
-        // TODO: display context menu for selection
     }
 
     pub fn rotate_selection(&mut self) {
         match &self.selection {
             Selection::None => {}
-            &Selection::Component(selected_component) => {
-                let component = &mut self.components[selected_component];
+            &Selection::Component(component) => {
+                let component = self
+                    .components
+                    .get_mut(component)
+                    .expect("invalid selection");
                 component.rotation = component.rotation.next();
             }
-            Selection::WireSegment(_) => {}
+            &Selection::WireSegment(wire_segment) => {
+                let wire_segment = self
+                    .wire_segments
+                    .get_mut(wire_segment)
+                    .expect("invalid selection");
+
+                let center = (wire_segment.point_a + wire_segment.point_b) / 2;
+                let a = wire_segment.point_a - center;
+                let b = wire_segment.point_b - center;
+
+                wire_segment.point_a = Vec2i::new(-a.y, a.x) + center;
+                wire_segment.point_b = Vec2i::new(-b.y, b.x) + center;
+            }
             Selection::Multi { .. } => { /* TODO: */ }
         }
     }
@@ -264,57 +515,25 @@ impl Circuit {
     pub fn mirror_selection(&mut self) {
         match &self.selection {
             Selection::None => {}
-            &Selection::Component(selected_component) => {
-                let component = &mut self.components[selected_component];
+            &Selection::Component(component) => {
+                let component = &mut self.components[component];
                 component.mirrored = !component.mirrored;
             }
-            Selection::WireSegment(_) => {}
+            &Selection::WireSegment(wire_segment) => {
+                let wire_segment = self
+                    .wire_segments
+                    .get_mut(wire_segment)
+                    .expect("invalid selection");
+
+                let center = (wire_segment.point_a + wire_segment.point_b) / 2;
+                let a = wire_segment.point_a - center;
+                let b = wire_segment.point_b - center;
+
+                wire_segment.point_a = Vec2i::new(-a.x, a.y) + center;
+                wire_segment.point_b = Vec2i::new(-b.x, b.y) + center;
+            }
             Selection::Multi { .. } => { /* TODO: */ }
         }
-    }
-
-    pub fn drag_selection(&mut self, delta: Vec2f) {
-        self.drag_delta += delta;
-
-        match &self.selection {
-            Selection::None => {
-                let create_wire = if let Some(create_wire) = self.create_wire {
-                    &mut self.wire_segments[create_wire]
-                } else {
-                    if (self.drag_delta.x.abs() < 1.0) && (self.drag_delta.y.abs() < 1.0) {
-                        return;
-                    }
-
-                    self.create_wire = Some(self.wire_segments.len());
-
-                    self.wire_segments.push(WireSegment {
-                        point_a: self.drag_start,
-                        point_b: self.drag_start,
-                    });
-
-                    self.wire_segments.last_mut().unwrap()
-                };
-
-                create_wire.point_b = self.drag_start + self.drag_delta.round().to_vec2i();
-            }
-            &Selection::Component(selected_component) => {
-                let component = &mut self.components[selected_component];
-                component.position = self.drag_start + self.drag_delta.round().to_vec2i();
-            }
-            &Selection::WireSegment(selected_wire_segment) => {
-                let wire_segment = &mut self.wire_segments[selected_wire_segment];
-                let diff = wire_segment.point_b - wire_segment.point_a;
-                wire_segment.point_a = self.drag_start + self.drag_delta.round().to_vec2i();
-                wire_segment.point_b = wire_segment.point_a + diff;
-            }
-            Selection::Multi { .. } => {}
-        }
-    }
-
-    pub fn end_drag(&mut self) {
-        self.drag_start = Vec2i::default();
-        self.drag_delta = Vec2f::default();
-        self.create_wire = None;
     }
 
     pub fn update_component_properties<'a>(
