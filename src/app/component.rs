@@ -4,20 +4,6 @@ use egui::*;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-#[derive(Clone, Copy)]
-pub struct BoundingBox {
-    top: f32,
-    bottom: f32,
-    left: f32,
-    right: f32,
-}
-
-impl BoundingBox {
-    pub fn contains(&self, p: Vec2f) -> bool {
-        (p.x >= self.left) && (p.x <= self.right) && (p.y >= self.bottom) && (p.y <= self.top)
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum AnchorKind {

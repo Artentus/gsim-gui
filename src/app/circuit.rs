@@ -1,6 +1,6 @@
 use super::component::*;
 use super::locale::*;
-use super::viewport::BASE_ZOOM;
+use super::viewport::{BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::math::*;
 use crate::HashSet;
 use serde::{Deserialize, Serialize};
@@ -40,7 +40,40 @@ pub struct WireSegment {
 
 impl WireSegment {
     pub fn contains(&self, p: Vec2f) -> bool {
-        false // TODO:
+        // Bounding box test
+        let bb = BoundingBox {
+            top: self.point_a.y.max(self.point_b.y) as f32,
+            bottom: self.point_a.y.min(self.point_b.y) as f32,
+            left: self.point_a.x.min(self.point_b.x) as f32,
+            right: self.point_a.x.max(self.point_b.x) as f32,
+        };
+        if !bb.contains(p) {
+            return false;
+        }
+
+        // Triangle test
+        let a = self.point_a.to_vec2f();
+        let b = self.point_b.to_vec2f();
+        let dir = (b - a).normalized();
+        let left = Vec2f::new(dir.y, -dir.x) * LOGICAL_PIXEL_SIZE;
+        let right = Vec2f::new(-dir.y, dir.x) * LOGICAL_PIXEL_SIZE;
+
+        let a1 = a + left;
+        let a2 = a + right;
+        let b1 = b + left;
+        let b2 = b + right;
+        let t1 = Triangle {
+            a: a1,
+            b: a2,
+            c: b2,
+        };
+        let t2 = Triangle {
+            a: a1,
+            b: b2,
+            c: b1,
+        };
+
+        t1.contains(p) || t2.contains(p)
     }
 }
 
@@ -178,7 +211,7 @@ impl Circuit {
 
         for (i, wire_segment) in self.wire_segments.iter().enumerate() {
             if wire_segment.contains(logical_pos) {
-                self.selection = Selection::Component(i);
+                self.selection = Selection::WireSegment(i);
                 self.drag_start = wire_segment.point_a;
                 break;
             }

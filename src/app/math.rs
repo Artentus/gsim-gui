@@ -236,6 +236,11 @@ macro_rules! def_vec2 {
                 let prod = self * rhs;
                 prod.x + prod.y
             }
+
+            #[inline]
+            pub fn cross(self, rhs: Self) -> $e {
+                (self.x * rhs.y) - (self.y * rhs.x)
+            }
         }
     };
 }
@@ -302,5 +307,46 @@ impl From<lyon::math::Point> for Vec2f {
             x: value.x,
             y: value.y,
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct BoundingBox {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub right: f32,
+}
+
+impl BoundingBox {
+    pub fn contains(&self, p: Vec2f) -> bool {
+        (p.x >= self.left) && (p.x <= self.right) && (p.y >= self.bottom) && (p.y <= self.top)
+    }
+}
+
+pub struct Triangle {
+    pub a: Vec2f,
+    pub b: Vec2f,
+    pub c: Vec2f,
+}
+
+impl Triangle {
+    pub fn contains(&self, p: Vec2f) -> bool {
+        let ca = self.a - self.c;
+        let ab = self.b - self.a;
+        let cp = p - self.c;
+        let ap = p - self.a;
+        let s = ca.cross(cp);
+        let t = ab.cross(ap);
+
+        if ((s < 0.0) != (t < 0.0)) && (s != 0.0) && (t != 0.0) {
+            return false;
+        }
+
+        let bc = self.c - self.b;
+        let bp = p - self.c;
+        let d = bc.cross(bp);
+
+        (d == 0.0) || ((d < 0.0) == (s + t <= 0.0))
     }
 }

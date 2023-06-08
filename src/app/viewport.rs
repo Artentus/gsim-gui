@@ -168,7 +168,7 @@ fn create_viewport_texture(
 }
 
 pub const BASE_ZOOM: f32 = 10.0; // Logical pixels per unit
-const LOGICAL_PIXEL_SIZE: f32 = 1.0 / BASE_ZOOM;
+pub const LOGICAL_PIXEL_SIZE: f32 = 1.0 / BASE_ZOOM;
 const GEOMETRY_TOLERANCE: f32 = LOGICAL_PIXEL_SIZE / 16.0;
 
 struct Geometry {
