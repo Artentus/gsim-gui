@@ -41,12 +41,18 @@ pub struct WireSegment {
 impl WireSegment {
     pub fn contains(&self, p: Vec2f) -> bool {
         // Bounding box test
-        let bb = BoundingBox {
+        let mut bb = BoundingBox {
             top: self.point_a.y.max(self.point_b.y) as f32,
             bottom: self.point_a.y.min(self.point_b.y) as f32,
             left: self.point_a.x.min(self.point_b.x) as f32,
             right: self.point_a.x.max(self.point_b.x) as f32,
         };
+
+        bb.top += LOGICAL_PIXEL_SIZE;
+        bb.bottom -= LOGICAL_PIXEL_SIZE;
+        bb.left -= LOGICAL_PIXEL_SIZE;
+        bb.right += LOGICAL_PIXEL_SIZE;
+
         if !bb.contains(p) {
             return false;
         }
