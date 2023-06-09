@@ -406,7 +406,7 @@ impl Circuit {
         self.secondary_button_down = false;
     }
 
-    fn move_selection(&mut self, delta: Vec2i) {
+    pub fn move_selection(&mut self, delta: Vec2i) {
         match &self.selection {
             Selection::None => {}
             &Selection::Component(component) => {

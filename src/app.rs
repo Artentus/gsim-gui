@@ -370,6 +370,22 @@ impl eframe::App for App {
                     circuit.mirror_selection();
                 }
 
+                if ui.input(|state| state.key_pressed(Key::ArrowUp)) {
+                    circuit.move_selection(Vec2i::new(0, 1));
+                }
+
+                if ui.input(|state| state.key_pressed(Key::ArrowDown)) {
+                    circuit.move_selection(Vec2i::new(0, -1));
+                }
+
+                if ui.input(|state| state.key_pressed(Key::ArrowLeft)) {
+                    circuit.move_selection(Vec2i::new(-1, 0));
+                }
+
+                if ui.input(|state| state.key_pressed(Key::ArrowRight)) {
+                    circuit.move_selection(Vec2i::new(1, 0));
+                }
+
                 const ZOOM_LEVELS: f32 = 10.0;
                 let zoom_delta = ui.input(|state| state.scroll_delta.y) / 120.0;
                 circuit.set_linear_zoom(circuit.linear_zoom() + (zoom_delta / ZOOM_LEVELS));
