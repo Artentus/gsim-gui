@@ -537,9 +537,48 @@ impl Circuit {
                     let whole_drag_delta = fract_drag_delta.round();
                     *fract_drag_delta -= whole_drag_delta;
 
-                    self.move_selection(whole_drag_delta.to_vec2i());
+                    let whole_drag_delta = whole_drag_delta.to_vec2i();
+                    if whole_drag_delta != Vec2i::default() {
+                        self.move_selection(whole_drag_delta);
+                    }
                 }
             }
+        }
+    }
+
+    fn find_selection_bounding_box(
+        &self,
+        components: &HashSet<usize>,
+        wire_segments: &HashSet<usize>,
+    ) -> BoundingBox {
+        let mut min = Vec2i::new(i32::MAX, i32::MAX);
+        let mut max = Vec2i::new(i32::MIN, i32::MIN);
+
+        for &component in components {
+            let component = self.components.get(component).expect("invalid selection");
+
+            min = min.min(component.position);
+            max = max.max(component.position);
+        }
+
+        for &wire_segment in wire_segments {
+            let wire_segment = self
+                .wire_segments
+                .get(wire_segment)
+                .expect("invalid selection");
+
+            min = min.min(wire_segment.point_a);
+            max = max.max(wire_segment.point_a);
+
+            min = min.min(wire_segment.point_b);
+            max = max.max(wire_segment.point_b);
+        }
+
+        BoundingBox {
+            top: max.y as f32,
+            bottom: min.y as f32,
+            left: min.x as f32,
+            right: max.x as f32,
         }
     }
 
@@ -551,6 +590,7 @@ impl Circuit {
                     .components
                     .get_mut(component)
                     .expect("invalid selection");
+
                 component.rotation = component.rotation.next();
             }
             &Selection::WireSegment(wire_segment) => {
@@ -562,11 +602,39 @@ impl Circuit {
                 let center = (wire_segment.point_a + wire_segment.point_b) / 2;
                 let a = wire_segment.point_a - center;
                 let b = wire_segment.point_b - center;
-
-                wire_segment.point_a = Vec2i::new(-a.y, a.x) + center;
-                wire_segment.point_b = Vec2i::new(-b.y, b.x) + center;
+                wire_segment.point_a = Vec2i::new(a.y, -a.x) + center;
+                wire_segment.point_b = Vec2i::new(b.y, -b.x) + center;
             }
-            Selection::Multi { .. } => { /* TODO: */ }
+            Selection::Multi {
+                components,
+                wire_segments,
+            } => {
+                let bb = self.find_selection_bounding_box(components, wire_segments);
+                let center = bb.center();
+
+                for &component in components {
+                    let component = self
+                        .components
+                        .get_mut(component)
+                        .expect("invalid selection");
+
+                    let pos = component.position.to_vec2f() - center;
+                    component.position = (Vec2f::new(pos.y, -pos.x) + center).to_vec2i();
+                    component.rotation = component.rotation.next();
+                }
+
+                for &wire_segment in wire_segments {
+                    let wire_segment = self
+                        .wire_segments
+                        .get_mut(wire_segment)
+                        .expect("invalid selection");
+
+                    let a = wire_segment.point_a.to_vec2f() - center;
+                    let b = wire_segment.point_b.to_vec2f() - center;
+                    wire_segment.point_a = (Vec2f::new(a.y, -a.x) + center).to_vec2i();
+                    wire_segment.point_b = (Vec2f::new(b.y, -b.x) + center).to_vec2i();
+                }
+            }
         }
     }
 
@@ -574,7 +642,11 @@ impl Circuit {
         match &self.selection {
             Selection::None => {}
             &Selection::Component(component) => {
-                let component = &mut self.components[component];
+                let component = self
+                    .components
+                    .get_mut(component)
+                    .expect("invalid selection");
+
                 component.mirrored = !component.mirrored;
             }
             &Selection::WireSegment(wire_segment) => {
@@ -590,7 +662,36 @@ impl Circuit {
                 wire_segment.point_a = Vec2i::new(-a.x, a.y) + center;
                 wire_segment.point_b = Vec2i::new(-b.x, b.y) + center;
             }
-            Selection::Multi { .. } => { /* TODO: */ }
+            Selection::Multi {
+                components,
+                wire_segments,
+            } => {
+                let bb = self.find_selection_bounding_box(components, wire_segments);
+                let center = bb.center();
+
+                for &component in components {
+                    let component = self
+                        .components
+                        .get_mut(component)
+                        .expect("invalid selection");
+
+                    let pos = component.position.to_vec2f() - center;
+                    component.position = (Vec2f::new(-pos.x, pos.y) + center).to_vec2i();
+                    component.mirrored = !component.mirrored;
+                }
+
+                for &wire_segment in wire_segments {
+                    let wire_segment = self
+                        .wire_segments
+                        .get_mut(wire_segment)
+                        .expect("invalid selection");
+
+                    let a = wire_segment.point_a.to_vec2f() - center;
+                    let b = wire_segment.point_b.to_vec2f() - center;
+                    wire_segment.point_a = (Vec2f::new(-a.x, a.y) + center).to_vec2i();
+                    wire_segment.point_b = (Vec2f::new(-b.x, b.y) + center).to_vec2i();
+                }
+            }
         }
     }
 

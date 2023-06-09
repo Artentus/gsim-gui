@@ -28,21 +28,29 @@ struct VertexOutput {
 fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     var vertex_position = vertex.position;
 
-    if instance.mirrored != 0u {
-        vertex_position.x = -vertex_position.x;
-    }
-
     switch instance.rotation {
         case 1u: {
-            vertex_position = vec2<f32>(vertex_position.y, -vertex_position.x);
+            if instance.mirrored == 0u {
+                vertex_position = vec2<f32>(vertex_position.y, -vertex_position.x);
+            } else {
+                vertex_position = vec2<f32>(-vertex_position.y, vertex_position.x);
+            }
         }
         case 2u: {
             vertex_position = vec2<f32>(-vertex_position.x, -vertex_position.y);
         }
         case 3u: {
-            vertex_position = vec2<f32>(-vertex_position.y, vertex_position.x);
+            if instance.mirrored == 0u {
+                vertex_position = vec2<f32>(-vertex_position.y, vertex_position.x);
+            } else {
+                vertex_position = vec2<f32>(vertex_position.y, -vertex_position.x);
+            }
         }
         default: {}
+    }
+
+    if instance.mirrored != 0u {
+        vertex_position.x = -vertex_position.x;
     }
 
     let local_position = vertex_position + instance.offset;

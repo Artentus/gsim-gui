@@ -241,6 +241,30 @@ macro_rules! def_vec2 {
             pub fn cross(self, rhs: Self) -> $e {
                 (self.x * rhs.y) - (self.y * rhs.x)
             }
+
+            #[inline]
+            pub fn abs(self) -> Self {
+                Self {
+                    x: self.x.abs(),
+                    y: self.y.abs(),
+                }
+            }
+
+            #[inline]
+            pub fn min(self, rhs: Self) -> Self {
+                Self {
+                    x: self.x.min(rhs.x),
+                    y: self.y.min(rhs.y),
+                }
+            }
+
+            #[inline]
+            pub fn max(self, rhs: Self) -> Self {
+                Self {
+                    x: self.x.max(rhs.x),
+                    y: self.y.max(rhs.y),
+                }
+            }
         }
     };
 }
@@ -321,6 +345,12 @@ pub struct BoundingBox {
 impl BoundingBox {
     pub fn contains(&self, p: Vec2f) -> bool {
         (p.x >= self.left) && (p.x <= self.right) && (p.y >= self.bottom) && (p.y <= self.top)
+    }
+
+    pub fn center(&self) -> Vec2f {
+        let min = Vec2f::new(self.left, self.bottom);
+        let max = Vec2f::new(self.right, self.top);
+        (min + max) * 0.5
     }
 }
 
