@@ -4,6 +4,8 @@ native-lang-name = Deutsch
 file-menu-item = Datei
 new-menu-item = Neu
 open-menu-item = Öffnen
+save-menu-item = Speichern
+save-as-menu-item = Speichern unter
 language-menu-item = Sprache
 
 light-theme-name = Hell

@@ -1,5 +1,6 @@
 use egui::*;
 use serde::{Deserialize, Serialize};
+use std::cell::OnceCell;
 
 mod math;
 use math::*;
@@ -19,6 +20,9 @@ use circuit::*;
 
 mod viewport;
 use viewport::*;
+
+mod file_dialog;
+use file_dialog::*;
 
 #[inline]
 fn show_themed_image_button(
@@ -50,6 +54,7 @@ pub struct App {
     state: AppState,
     locale_manager: LocaleManager,
     next_visuals: Option<Visuals>,
+    file_dialog: OnceCell<FileDialog>,
 
     theme_image: ThemedImage,
     and_gate_image: ThemedImage,
@@ -84,6 +89,7 @@ impl App {
             state,
             locale_manager: LocaleManager::init(),
             next_visuals: None,
+            file_dialog: OnceCell::new(),
 
             theme_image: themed_image!(SwitchTheme.svg),
             and_gate_image: themed_image!(AndGate.svg),
@@ -114,6 +120,30 @@ impl eframe::App for App {
             ctx.set_visuals(visuals);
         }
 
+        let Some(file_dialog) = self.file_dialog.get_mut() else {
+            if let Some(file_dialog) = FileDialog::new() {
+                let _ = self.file_dialog.set(file_dialog);
+            }
+            return;
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((file_name, data)) = file_dialog.get() {
+            let mut circuit = Circuit::deserialize(&data).expect("error opening file");
+            circuit.set_file_name(file_name);
+
+            self.selected_circuit = Some(self.circuits.len());
+            self.circuits.push(circuit);
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        if let Some(data) = file_dialog.get() {
+            let circuit = Circuit::deserialize(&data).expect("error opening file");
+
+            self.selected_circuit = Some(self.circuits.len());
+            self.circuits.push(circuit);
+        }
+
         TopBottomPanel::top("main_menu").show(ctx, |ui| {
             menu::bar(ui, |ui| {
                 ui.menu_button(
@@ -130,7 +160,62 @@ impl eframe::App for App {
                         if ui
                             .button(self.locale_manager.get(&self.state.lang, "open-menu-item"))
                             .clicked()
-                        {}
+                        {
+                            file_dialog.open();
+                        }
+
+                        if let Some(circuit) = self.selected_circuit.map(|i| &mut self.circuits[i])
+                        {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                if ui
+                                    .button(
+                                        self.locale_manager.get(&self.state.lang, "save-menu-item"),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some(file_name) = circuit.file_name() {
+                                        std::fs::write(file_name, &Circuit::serialize(circuit))
+                                            .expect("error saving file");
+                                        circuit.set_file_name(file_name.to_owned());
+                                    } else {
+                                        if let Some(file_name) = file_dialog
+                                            .save(None, &Circuit::serialize(circuit))
+                                            .expect("error saving file")
+                                        {
+                                            circuit.set_file_name(file_name);
+                                        }
+                                    }
+                                }
+
+                                if ui
+                                    .button(
+                                        self.locale_manager
+                                            .get(&self.state.lang, "save-as-menu-item"),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some(file_name) = file_dialog
+                                        .save(circuit.file_name(), &Circuit::serialize(circuit))
+                                        .expect("error saving file")
+                                    {
+                                        circuit.set_file_name(file_name);
+                                    }
+                                }
+                            }
+
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                if ui
+                                    .button(
+                                        self.locale_manager.get(&self.state.lang, "save-menu-item"),
+                                    )
+                                    .clicked()
+                                {
+                                    file_dialog.save(circuit.name(), &Circuit::serialize(circuit));
+                                }
+                            }
+                        }
                     },
                 );
 

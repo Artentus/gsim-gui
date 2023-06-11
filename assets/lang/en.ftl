@@ -4,6 +4,8 @@ native-lang-name = English
 file-menu-item = File
 new-menu-item = New
 open-menu-item = Open
+save-menu-item = Save
+save-as-menu-item = Save as
 language-menu-item = Language
 
 light-theme-name = Light

@@ -4,6 +4,7 @@ use super::viewport::{BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::math::*;
 use crate::HashSet;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 const MIN_LINEAR_ZOOM: f32 = 0.0;
@@ -175,6 +176,8 @@ pub struct Circuit {
     primary_button_down: bool,
     #[serde(skip)]
     secondary_button_down: bool,
+    #[serde(skip)]
+    file_name: Option<PathBuf>,
 }
 
 impl Circuit {
@@ -190,6 +193,7 @@ impl Circuit {
             drag_state: DragState::None,
             primary_button_down: false,
             secondary_button_down: false,
+            file_name: None,
         }
     }
 
@@ -253,6 +257,26 @@ impl Circuit {
             } => Some((drag_start, drag_start + drag_delta)),
             _ => None,
         }
+    }
+
+    #[inline]
+    pub fn file_name(&self) -> Option<&Path> {
+        self.file_name.as_deref()
+    }
+
+    #[inline]
+    pub fn set_file_name(&mut self, file_name: PathBuf) {
+        self.file_name = Some(file_name);
+    }
+
+    #[inline]
+    pub fn serialize(&self) -> Vec<u8> {
+        serde_json::to_vec_pretty(self).unwrap()
+    }
+
+    #[inline]
+    pub fn deserialize(data: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(data)
     }
 
     fn hit_test(&self, logical_pos: Vec2f) -> HitTestResult {
