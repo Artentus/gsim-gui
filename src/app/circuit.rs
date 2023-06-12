@@ -164,6 +164,7 @@ enum HitTestResult {
 pub struct Circuit {
     name: String,
     offset: Vec2f,
+    #[serde(skip)]
     linear_zoom: f32,
     zoom: f32,
     components: Vec<Component>,
@@ -269,14 +270,14 @@ impl Circuit {
         self.file_name = Some(file_name);
     }
 
-    #[inline]
     pub fn serialize(&self) -> Vec<u8> {
         serde_json::to_vec_pretty(self).unwrap()
     }
 
-    #[inline]
     pub fn deserialize(data: &[u8]) -> Result<Self, serde_json::Error> {
-        serde_json::from_slice(data)
+        let mut circuit: Circuit = serde_json::from_slice(data)?;
+        circuit.linear_zoom = zoom_to_linear(circuit.zoom);
+        Ok(circuit)
     }
 
     fn hit_test(&self, logical_pos: Vec2f) -> HitTestResult {
