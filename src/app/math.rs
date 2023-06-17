@@ -226,6 +226,21 @@ macro_rules! def_vec2 {
 
         #[allow(dead_code)]
         impl $name {
+            pub const ZERO: Self = Self {
+                x: 0 as $e,
+                y: 0 as $e,
+            };
+
+            pub const MIN: Self = Self {
+                x: <$e>::MIN,
+                y: <$e>::MIN,
+            };
+
+            pub const MAX: Self = Self {
+                x: <$e>::MAX,
+                y: <$e>::MAX,
+            };
+
             #[inline]
             pub const fn new(x: $e, y: $e) -> Self {
                 Self { x, y }
@@ -286,6 +301,7 @@ impl Vec2i {
 
 def_vec2!(Vec2f[f32]);
 
+#[allow(dead_code)]
 impl Vec2f {
     #[inline]
     pub fn len(self) -> f32 {
@@ -302,6 +318,22 @@ impl Vec2f {
         Self {
             x: self.x.round(),
             y: self.y.round(),
+        }
+    }
+
+    #[inline]
+    pub fn floor(self) -> Self {
+        Self {
+            x: self.x.floor(),
+            y: self.y.floor(),
+        }
+    }
+
+    #[inline]
+    pub fn ceil(self) -> Self {
+        Self {
+            x: self.x.ceil(),
+            y: self.y.ceil(),
         }
     }
 

@@ -183,46 +183,52 @@ impl ViewportWires {
         let mut count = 0;
         let mut vertices = Vec::with_capacity(BATCH_SIZE * 4);
         for (i, segment) in circuit.wire_segments().iter().enumerate() {
-            let a = segment.point_a.to_vec2f();
-            let b = segment.point_b.to_vec2f();
-            let dir = (b - a).normalized();
-            let left = Vec2f::new(dir.y, -dir.x) * LOGICAL_PIXEL_SIZE;
-            let right = Vec2f::new(-dir.y, dir.x) * LOGICAL_PIXEL_SIZE;
+            let midpoints = segment.midpoints.iter().copied();
+            let endpoint_b = std::iter::once(segment.endpoint_b);
 
             let selected = circuit.selection().contains_wire_segment(i);
 
-            vertices.push(Vertex {
-                position: a + left,
-                selected: selected as u32,
-            });
-            vertices.push(Vertex {
-                position: a + right,
-                selected: selected as u32,
-            });
-            vertices.push(Vertex {
-                position: b + left,
-                selected: selected as u32,
-            });
-            vertices.push(Vertex {
-                position: b + right,
-                selected: selected as u32,
-            });
+            let mut a = segment.endpoint_a.to_vec2f();
+            for b in midpoints.chain(endpoint_b).map(Vec2i::to_vec2f) {
+                let dir = (b - a).normalized();
+                let left = Vec2f::new(dir.y, -dir.x) * LOGICAL_PIXEL_SIZE;
+                let right = Vec2f::new(-dir.y, dir.x) * LOGICAL_PIXEL_SIZE;
 
-            count += 1;
-            if count >= BATCH_SIZE {
-                self.vertex_buffer.write(&render_state.queue, &vertices);
-
-                render_state.render_pass(texture_view, None, None, |pass, _| {
-                    pass.set_pipeline(&self.pipeline);
-                    pass.set_bind_group(0, &self.bind_group, &[]);
-                    pass.set_vertex_buffer(0, self.vertex_buffer.slice());
-                    pass.set_index_buffer(self.index_buffer.slice(), IndexFormat::Uint16);
-
-                    pass.draw_indexed(0..((BATCH_SIZE * 6) as u32), 0, 0..1);
+                vertices.push(Vertex {
+                    position: a + left,
+                    selected: selected as u32,
+                });
+                vertices.push(Vertex {
+                    position: a + right,
+                    selected: selected as u32,
+                });
+                vertices.push(Vertex {
+                    position: b + left,
+                    selected: selected as u32,
+                });
+                vertices.push(Vertex {
+                    position: b + right,
+                    selected: selected as u32,
                 });
 
-                count = 0;
-                vertices.clear();
+                count += 1;
+                if count >= BATCH_SIZE {
+                    self.vertex_buffer.write(&render_state.queue, &vertices);
+
+                    render_state.render_pass(texture_view, None, None, |pass, _| {
+                        pass.set_pipeline(&self.pipeline);
+                        pass.set_bind_group(0, &self.bind_group, &[]);
+                        pass.set_vertex_buffer(0, self.vertex_buffer.slice());
+                        pass.set_index_buffer(self.index_buffer.slice(), IndexFormat::Uint16);
+
+                        pass.draw_indexed(0..((BATCH_SIZE * 6) as u32), 0, 0..1);
+                    });
+
+                    count = 0;
+                    vertices.clear();
+                }
+
+                a = b;
             }
         }
 

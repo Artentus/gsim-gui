@@ -214,8 +214,8 @@ impl ViewportAnchors {
     ) {
         let mut segment_end_points = HashSet::default();
         for segment in circuit.wire_segments() {
-            segment_end_points.insert(segment.point_a);
-            segment_end_points.insert(segment.point_b);
+            segment_end_points.insert(segment.endpoint_a);
+            segment_end_points.insert(segment.endpoint_b);
         }
 
         let mut instances = Vec::new();

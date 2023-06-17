@@ -4,6 +4,7 @@ use super::viewport::{BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::math::*;
 use crate::HashSet;
 use serde::{Deserialize, Serialize};
+use smallvec::{smallvec, SmallVec};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -35,52 +36,104 @@ fn linear_to_zoom(linear: f32) -> f32 {
 
 #[derive(Serialize, Deserialize)]
 pub struct WireSegment {
-    pub point_a: Vec2i,
-    pub point_b: Vec2i,
+    pub endpoint_a: Vec2i,
+    pub midpoints: SmallVec<[Vec2i; 2]>,
+    pub endpoint_b: Vec2i,
 }
 
 impl WireSegment {
     pub fn contains(&self, p: Vec2f) -> bool {
         // Bounding box test
-        let mut bb = BoundingBox {
-            top: self.point_a.y.max(self.point_b.y) as f32,
-            bottom: self.point_a.y.min(self.point_b.y) as f32,
-            left: self.point_a.x.min(self.point_b.x) as f32,
-            right: self.point_a.x.max(self.point_b.x) as f32,
-        };
+        let midpoints = self.midpoints.iter().copied();
+        let endpoint_a = std::iter::once(self.endpoint_a);
+        let endpoint_b = std::iter::once(self.endpoint_b);
 
-        bb.top += LOGICAL_PIXEL_SIZE;
-        bb.bottom -= LOGICAL_PIXEL_SIZE;
-        bb.left -= LOGICAL_PIXEL_SIZE;
-        bb.right += LOGICAL_PIXEL_SIZE;
+        let (min, max) = midpoints
+            .chain(endpoint_a)
+            .chain(endpoint_b)
+            .fold((Vec2i::MAX, Vec2i::MIN), |(min, max), v| {
+                (min.min(v), max.max(v))
+            });
+
+        let bb = BoundingBox {
+            top: (max.y as f32) + LOGICAL_PIXEL_SIZE,
+            bottom: (min.y as f32) - LOGICAL_PIXEL_SIZE,
+            left: (min.x as f32) - LOGICAL_PIXEL_SIZE,
+            right: (max.x as f32) + LOGICAL_PIXEL_SIZE,
+        };
 
         if !bb.contains(p) {
             return false;
         }
 
         // Triangle test
-        let a = self.point_a.to_vec2f();
-        let b = self.point_b.to_vec2f();
-        let dir = (b - a).normalized();
-        let left = Vec2f::new(dir.y, -dir.x) * LOGICAL_PIXEL_SIZE;
-        let right = Vec2f::new(-dir.y, dir.x) * LOGICAL_PIXEL_SIZE;
+        let midpoints = self.midpoints.iter().copied();
+        let endpoint_b = std::iter::once(self.endpoint_b);
 
-        let a1 = a + left;
-        let a2 = a + right;
-        let b1 = b + left;
-        let b2 = b + right;
-        let t1 = Triangle {
-            a: a1,
-            b: a2,
-            c: b2,
-        };
-        let t2 = Triangle {
-            a: a1,
-            b: b2,
-            c: b1,
-        };
+        let mut a = self.endpoint_a.to_vec2f();
+        for b in midpoints.chain(endpoint_b).map(Vec2i::to_vec2f) {
+            let dir = (b - a).normalized();
+            let left = Vec2f::new(dir.y, -dir.x) * LOGICAL_PIXEL_SIZE;
+            let right = Vec2f::new(-dir.y, dir.x) * LOGICAL_PIXEL_SIZE;
 
-        t1.contains(p) || t2.contains(p)
+            let a1 = a + left;
+            let a2 = a + right;
+            let b1 = b + left;
+            let b2 = b + right;
+            let t1 = Triangle {
+                a: a1,
+                b: a2,
+                c: b2,
+            };
+            let t2 = Triangle {
+                a: a1,
+                b: b2,
+                c: b1,
+            };
+
+            if t1.contains(p) || t2.contains(p) {
+                return true;
+            }
+
+            a = b;
+        }
+
+        false
+    }
+
+    fn update_midpoints(&mut self) {
+        self.midpoints.clear();
+
+        let diff = (self.endpoint_b - self.endpoint_a).abs();
+        if (diff.x == 0) || (diff.y == 0) || (diff.x == diff.y) {
+            // Straight wire, no midpoints
+        } else if diff.x > diff.y {
+            // X direction further apart, midpoint horizontal
+
+            let offset = if self.endpoint_a.x > self.endpoint_b.x {
+                diff.x - diff.y
+            } else {
+                diff.y - diff.x
+            };
+
+            self.midpoints
+                .push(Vec2i::new(self.endpoint_b.x + offset, self.endpoint_b.y));
+        } else {
+            // Y direction further apart, midpoint vertical
+
+            let offset = if self.endpoint_a.y > self.endpoint_b.y {
+                diff.y - diff.x
+            } else {
+                diff.x - diff.y
+            };
+
+            self.midpoints
+                .push(Vec2i::new(self.endpoint_b.x, self.endpoint_b.y + offset));
+        }
+
+        if self.midpoints.len() <= self.midpoints.inline_size() {
+            self.midpoints.shrink_to_fit();
+        }
     }
 }
 
@@ -93,6 +146,7 @@ pub enum Selection {
     Multi {
         components: HashSet<usize>,
         wire_segments: HashSet<usize>,
+        center: Vec2f,
     },
 }
 
@@ -369,8 +423,8 @@ impl Circuit {
 
                 let mut selected_wire_segments = HashSet::new();
                 for (i, wire_segment) in self.wire_segments.iter().enumerate() {
-                    if selection_box.contains(wire_segment.point_a.to_vec2f())
-                        || selection_box.contains(wire_segment.point_b.to_vec2f())
+                    if selection_box.contains(wire_segment.endpoint_a.to_vec2f())
+                        || selection_box.contains(wire_segment.endpoint_b.to_vec2f())
                     {
                         selected_wire_segments.insert(i);
                     }
@@ -382,10 +436,14 @@ impl Circuit {
                 } else if selected_components.is_empty() && (selected_wire_segments.len() == 1) {
                     self.selection =
                         Selection::WireSegment(selected_wire_segments.into_iter().next().unwrap());
-                } else if !selected_components.is_empty() && !selected_wire_segments.is_empty() {
+                } else if !selected_components.is_empty() || !selected_wire_segments.is_empty() {
+                    let bb = self
+                        .find_selection_bounding_box(&selected_components, &selected_wire_segments);
+
                     self.selection = Selection::Multi {
                         components: selected_components,
                         wire_segments: selected_wire_segments,
+                        center: bb.center(),
                     };
                 }
             }
@@ -432,9 +490,9 @@ impl Circuit {
     }
 
     pub fn move_selection(&mut self, delta: Vec2i) {
-        match &self.selection {
+        match self.selection {
             Selection::None => {}
-            &Selection::Component(component) => {
+            Selection::Component(component) => {
                 let component = self
                     .components
                     .get_mut(component)
@@ -442,18 +500,22 @@ impl Circuit {
 
                 component.position += delta;
             }
-            &Selection::WireSegment(wire_segment) => {
+            Selection::WireSegment(wire_segment) => {
                 let wire_segment = self
                     .wire_segments
                     .get_mut(wire_segment)
                     .expect("invalid selection");
 
-                wire_segment.point_a += delta;
-                wire_segment.point_b += delta;
+                wire_segment.endpoint_a += delta;
+                wire_segment.endpoint_b += delta;
+                for p in wire_segment.midpoints.iter_mut() {
+                    *p += delta;
+                }
             }
             Selection::Multi {
-                components,
-                wire_segments,
+                ref components,
+                ref wire_segments,
+                ref mut center,
             } => {
                 for &component in components {
                     let component = self
@@ -470,9 +532,14 @@ impl Circuit {
                         .get_mut(wire_segment)
                         .expect("invalid selection");
 
-                    wire_segment.point_a += delta;
-                    wire_segment.point_b += delta;
+                    wire_segment.endpoint_a += delta;
+                    wire_segment.endpoint_b += delta;
+                    for p in wire_segment.midpoints.iter_mut() {
+                        *p += delta;
+                    }
                 }
+
+                *center += delta.to_vec2f();
             }
         }
     }
@@ -503,12 +570,18 @@ impl Circuit {
                                     drag_delta,
                                 },
                                 DragMode::DrawWire => {
-                                    let wire_segment = self.wire_segments.len();
+                                    let endpoint_a = drag_start.round().to_vec2i();
+                                    let endpoint_b = (drag_start + drag_delta).round().to_vec2i();
 
-                                    self.wire_segments.push(WireSegment {
-                                        point_a: drag_start.to_vec2i(),
-                                        point_b: (drag_start + drag_delta).round().to_vec2i(),
-                                    });
+                                    let mut segment = WireSegment {
+                                        endpoint_a,
+                                        midpoints: smallvec![],
+                                        endpoint_b,
+                                    };
+                                    segment.update_midpoints();
+
+                                    let wire_segment = self.wire_segments.len();
+                                    self.wire_segments.push(segment);
 
                                     DragState::DrawingWireSegment {
                                         wire_segment,
@@ -556,7 +629,12 @@ impl Circuit {
                         .wire_segments
                         .get_mut(*wire_segment)
                         .expect("invalid drag state");
-                    wire_segment.point_b = (*drag_start + *drag_delta).round().to_vec2i();
+
+                    let new_b = (*drag_start + *drag_delta).round().to_vec2i();
+                    if wire_segment.endpoint_b != new_b {
+                        wire_segment.endpoint_b = new_b;
+                        wire_segment.update_midpoints();
+                    }
                 }
                 DragState::Dragging { fract_drag_delta } => {
                     assert!(
@@ -598,11 +676,16 @@ impl Circuit {
                 .get(wire_segment)
                 .expect("invalid selection");
 
-            min = min.min(wire_segment.point_a);
-            max = max.max(wire_segment.point_a);
+            min = min.min(wire_segment.endpoint_a);
+            max = max.max(wire_segment.endpoint_a);
 
-            min = min.min(wire_segment.point_b);
-            max = max.max(wire_segment.point_b);
+            min = min.min(wire_segment.endpoint_b);
+            max = max.max(wire_segment.endpoint_b);
+
+            for p in wire_segment.midpoints.iter() {
+                min = min.min(*p);
+                max = max.max(*p);
+            }
         }
 
         BoundingBox {
@@ -614,9 +697,9 @@ impl Circuit {
     }
 
     pub fn rotate_selection(&mut self) {
-        match &self.selection {
+        match self.selection {
             Selection::None => {}
-            &Selection::Component(component) => {
+            Selection::Component(component) => {
                 let component = self
                     .components
                     .get_mut(component)
@@ -624,25 +707,29 @@ impl Circuit {
 
                 component.rotation = component.rotation.next();
             }
-            &Selection::WireSegment(wire_segment) => {
+            Selection::WireSegment(wire_segment) => {
                 let wire_segment = self
                     .wire_segments
                     .get_mut(wire_segment)
                     .expect("invalid selection");
 
-                let center = (wire_segment.point_a + wire_segment.point_b) / 2;
-                let a = wire_segment.point_a - center;
-                let b = wire_segment.point_b - center;
-                wire_segment.point_a = Vec2i::new(a.y, -a.x) + center;
-                wire_segment.point_b = Vec2i::new(b.y, -b.x) + center;
+                let center = (wire_segment.endpoint_a + wire_segment.endpoint_b).to_vec2f() * 0.5;
+
+                let a = wire_segment.endpoint_a.to_vec2f() - center;
+                let b = wire_segment.endpoint_b.to_vec2f() - center;
+                wire_segment.endpoint_a = (Vec2f::new(a.y, -a.x) + center).floor().to_vec2i();
+                wire_segment.endpoint_b = (Vec2f::new(b.y, -b.x) + center).floor().to_vec2i();
+
+                for p in wire_segment.midpoints.iter_mut() {
+                    let rp = p.to_vec2f() - center;
+                    *p = (Vec2f::new(rp.y, -rp.x) + center).floor().to_vec2i();
+                }
             }
             Selection::Multi {
-                components,
-                wire_segments,
+                ref components,
+                ref wire_segments,
+                center,
             } => {
-                let bb = self.find_selection_bounding_box(components, wire_segments);
-                let center = bb.center();
-
                 for &component in components {
                     let component = self
                         .components
@@ -650,7 +737,7 @@ impl Circuit {
                         .expect("invalid selection");
 
                     let pos = component.position.to_vec2f() - center;
-                    component.position = (Vec2f::new(pos.y, -pos.x) + center).to_vec2i();
+                    component.position = (Vec2f::new(pos.y, -pos.x) + center).floor().to_vec2i();
                     component.rotation = component.rotation.next();
                 }
 
@@ -660,19 +747,24 @@ impl Circuit {
                         .get_mut(wire_segment)
                         .expect("invalid selection");
 
-                    let a = wire_segment.point_a.to_vec2f() - center;
-                    let b = wire_segment.point_b.to_vec2f() - center;
-                    wire_segment.point_a = (Vec2f::new(a.y, -a.x) + center).to_vec2i();
-                    wire_segment.point_b = (Vec2f::new(b.y, -b.x) + center).to_vec2i();
+                    let a = wire_segment.endpoint_a.to_vec2f() - center;
+                    let b = wire_segment.endpoint_b.to_vec2f() - center;
+                    wire_segment.endpoint_a = (Vec2f::new(a.y, -a.x) + center).floor().to_vec2i();
+                    wire_segment.endpoint_b = (Vec2f::new(b.y, -b.x) + center).floor().to_vec2i();
+
+                    for p in wire_segment.midpoints.iter_mut() {
+                        let rp = p.to_vec2f() - center;
+                        *p = (Vec2f::new(rp.y, -rp.x) + center).floor().to_vec2i();
+                    }
                 }
             }
         }
     }
 
     pub fn mirror_selection(&mut self) {
-        match &self.selection {
+        match self.selection {
             Selection::None => {}
-            &Selection::Component(component) => {
+            Selection::Component(component) => {
                 let component = self
                     .components
                     .get_mut(component)
@@ -680,26 +772,29 @@ impl Circuit {
 
                 component.mirrored = !component.mirrored;
             }
-            &Selection::WireSegment(wire_segment) => {
+            Selection::WireSegment(wire_segment) => {
                 let wire_segment = self
                     .wire_segments
                     .get_mut(wire_segment)
                     .expect("invalid selection");
 
-                let center = (wire_segment.point_a + wire_segment.point_b) / 2;
-                let a = wire_segment.point_a - center;
-                let b = wire_segment.point_b - center;
+                let center = (wire_segment.endpoint_a + wire_segment.endpoint_b).to_vec2f() * 0.5;
 
-                wire_segment.point_a = Vec2i::new(-a.x, a.y) + center;
-                wire_segment.point_b = Vec2i::new(-b.x, b.y) + center;
+                let a = wire_segment.endpoint_a.to_vec2f() - center;
+                let b = wire_segment.endpoint_b.to_vec2f() - center;
+                wire_segment.endpoint_a = (Vec2f::new(-a.x, a.y) + center).floor().to_vec2i();
+                wire_segment.endpoint_b = (Vec2f::new(-b.x, b.y) + center).floor().to_vec2i();
+
+                for p in wire_segment.midpoints.iter_mut() {
+                    let rp = p.to_vec2f() - center;
+                    *p = (Vec2f::new(-rp.x, rp.y) + center).floor().to_vec2i();
+                }
             }
             Selection::Multi {
-                components,
-                wire_segments,
+                ref components,
+                ref wire_segments,
+                center,
             } => {
-                let bb = self.find_selection_bounding_box(components, wire_segments);
-                let center = bb.center();
-
                 for &component in components {
                     let component = self
                         .components
@@ -707,7 +802,7 @@ impl Circuit {
                         .expect("invalid selection");
 
                     let pos = component.position.to_vec2f() - center;
-                    component.position = (Vec2f::new(-pos.x, pos.y) + center).to_vec2i();
+                    component.position = (Vec2f::new(-pos.x, pos.y) + center).floor().to_vec2i();
                     component.mirrored = !component.mirrored;
                 }
 
@@ -717,10 +812,15 @@ impl Circuit {
                         .get_mut(wire_segment)
                         .expect("invalid selection");
 
-                    let a = wire_segment.point_a.to_vec2f() - center;
-                    let b = wire_segment.point_b.to_vec2f() - center;
-                    wire_segment.point_a = (Vec2f::new(-a.x, a.y) + center).to_vec2i();
-                    wire_segment.point_b = (Vec2f::new(-b.x, b.y) + center).to_vec2i();
+                    let a = wire_segment.endpoint_a.to_vec2f() - center;
+                    let b = wire_segment.endpoint_b.to_vec2f() - center;
+                    wire_segment.endpoint_a = (Vec2f::new(-a.x, a.y) + center).floor().to_vec2i();
+                    wire_segment.endpoint_b = (Vec2f::new(-b.x, b.y) + center).floor().to_vec2i();
+
+                    for p in wire_segment.midpoints.iter_mut() {
+                        let rp = p.to_vec2f() - center;
+                        *p = (Vec2f::new(-rp.x, rp.y) + center).floor().to_vec2i();
+                    }
                 }
             }
         }
@@ -742,46 +842,63 @@ impl Circuit {
                 ui.heading(locale_manager.get(lang, "properties-header"));
 
                 let segment = &mut self.wire_segments[selected_segment];
+                let mut needs_midpoint_update = false;
 
                 ui.horizontal(|ui| {
                     ui.label("X1:");
 
-                    let mut x1_text = format!("{}", segment.point_a.x);
+                    let mut x1_text = format!("{}", segment.endpoint_a.x);
                     ui.text_edit_singleline(&mut x1_text);
                     if let Ok(new_x1) = x1_text.parse() {
-                        segment.point_a.x = new_x1;
+                        if segment.endpoint_a.x != new_x1 {
+                            segment.endpoint_a.x = new_x1;
+                            needs_midpoint_update = true;
+                        }
                     }
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("Y1:");
 
-                    let mut y1_text = format!("{}", segment.point_a.y);
+                    let mut y1_text = format!("{}", segment.endpoint_a.y);
                     ui.text_edit_singleline(&mut y1_text);
                     if let Ok(new_y1) = y1_text.parse() {
-                        segment.point_a.y = new_y1;
+                        if segment.endpoint_a.y != new_y1 {
+                            segment.endpoint_a.y = new_y1;
+                            needs_midpoint_update = true;
+                        }
                     }
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("X2:");
 
-                    let mut x2_text = format!("{}", segment.point_b.x);
+                    let mut x2_text = format!("{}", segment.endpoint_b.x);
                     ui.text_edit_singleline(&mut x2_text);
                     if let Ok(new_x2) = x2_text.parse() {
-                        segment.point_b.x = new_x2;
+                        if segment.endpoint_b.x != new_x2 {
+                            segment.endpoint_b.x = new_x2;
+                            needs_midpoint_update = true;
+                        }
                     }
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("Y2:");
 
-                    let mut y2_text = format!("{}", segment.point_b.y);
+                    let mut y2_text = format!("{}", segment.endpoint_b.y);
                     ui.text_edit_singleline(&mut y2_text);
                     if let Ok(new_y2) = y2_text.parse() {
-                        segment.point_b.y = new_y2;
+                        if segment.endpoint_b.y != new_y2 {
+                            segment.endpoint_b.y = new_y2;
+                            needs_midpoint_update = true;
+                        }
                     }
                 });
+
+                if needs_midpoint_update {
+                    segment.update_midpoints();
+                }
             }
             Selection::Multi { .. } => {}
         }
