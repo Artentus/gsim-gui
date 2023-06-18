@@ -33,18 +33,37 @@ macro_rules! anchors {
 #[derive(Serialize, Deserialize)]
 pub enum ComponentKind {
     AndGate { width: u8 },
+    OrGate { width: u8 },
+    XorGate { width: u8 },
+    NandGate { width: u8 },
+    NorGate { width: u8 },
+    XnorGate { width: u8 },
 }
 
 impl ComponentKind {
     fn anchors(&self) -> SmallVec<[Anchor; 3]> {
         match self {
-            ComponentKind::AndGate { .. } => anchors![Input(-1, -2), Input(1, -2), Output(0, 2)],
+            ComponentKind::AndGate { .. }
+            | ComponentKind::OrGate { .. }
+            | ComponentKind::XorGate { .. } => {
+                anchors![Input(-1, -2), Input(1, -2), Output(0, 2)]
+            }
+            ComponentKind::NandGate { .. }
+            | ComponentKind::NorGate { .. }
+            | ComponentKind::XnorGate { .. } => {
+                anchors![Input(-1, -2), Input(1, -2), Output(0, 3)]
+            }
         }
     }
 
     fn bounding_box(&self) -> BoundingBox {
         match self {
-            ComponentKind::AndGate { .. } => BoundingBox {
+            ComponentKind::AndGate { .. }
+            | ComponentKind::OrGate { .. }
+            | ComponentKind::XorGate { .. }
+            | ComponentKind::NandGate { .. }
+            | ComponentKind::NorGate { .. }
+            | ComponentKind::XnorGate { .. } => BoundingBox {
                 top: 2.0,
                 bottom: -2.0,
                 left: -2.0,
@@ -55,7 +74,12 @@ impl ComponentKind {
 
     fn update_properties(&mut self, ui: &mut Ui, locale_manager: &LocaleManager, lang: &LangId) {
         match self {
-            ComponentKind::AndGate { width } => {
+            ComponentKind::AndGate { width }
+            | ComponentKind::OrGate { width }
+            | ComponentKind::XorGate { width }
+            | ComponentKind::NandGate { width }
+            | ComponentKind::NorGate { width }
+            | ComponentKind::XnorGate { width } => {
                 ui.horizontal(|ui| {
                     ui.label(locale_manager.get(lang, "bit-width-property-name"));
 

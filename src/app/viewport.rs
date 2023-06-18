@@ -22,6 +22,9 @@ use anchor::*;
 mod selection_box;
 use selection_box::*;
 
+mod geometry;
+use geometry::*;
+
 macro_rules! shader {
     ($device:expr, $name:literal) => {{
         const SOURCE: &str = include_str!(concat!(
@@ -113,12 +116,6 @@ struct Globals {
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
-struct Vertex {
-    position: Vec2f,
-}
-
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
 struct Instance {
     offset: Vec2f,
     rotation: u32,
@@ -172,115 +169,6 @@ fn create_viewport_texture(
 
 pub const BASE_ZOOM: f32 = 10.0; // Logical pixels per unit
 pub const LOGICAL_PIXEL_SIZE: f32 = 1.0 / BASE_ZOOM;
-const GEOMETRY_TOLERANCE: f32 = LOGICAL_PIXEL_SIZE / 16.0;
-
-struct Geometry {
-    vertices: StaticBuffer<Vertex>,
-    indices: StaticBuffer<u16>,
-}
-
-macro_rules! geometry {
-    ($device:expr, $stroke:expr, $fill:expr, $label:literal) => {
-        (
-            Geometry {
-                vertices: StaticBuffer::create_init(
-                    $device,
-                    Some(concat!($label, " stroke vertices")),
-                    BufferUsages::VERTEX,
-                    &$stroke.vertices,
-                ),
-                indices: StaticBuffer::create_init(
-                    $device,
-                    Some(concat!($label, " stroke indices")),
-                    BufferUsages::INDEX,
-                    &$stroke.indices,
-                ),
-            },
-            Geometry {
-                vertices: StaticBuffer::create_init(
-                    $device,
-                    Some(concat!($label, " fill vertices")),
-                    BufferUsages::VERTEX,
-                    &$fill.vertices,
-                ),
-                indices: StaticBuffer::create_init(
-                    $device,
-                    Some(concat!($label, " fill indices")),
-                    BufferUsages::INDEX,
-                    &$fill.indices,
-                ),
-            },
-        )
-    };
-}
-
-fn build_and_gate_geometry(device: &Device) -> (Geometry, Geometry) {
-    use lyon::math::*;
-    use lyon::path::*;
-    use lyon::tessellation::*;
-
-    const ARC_CTRL_POS: f32 = 0.552284749831 * 2.0;
-
-    let mut builder = Path::builder();
-    builder.begin(point(-2.0, -2.0));
-    builder.line_to(point(-2.0, 0.0));
-    builder.cubic_bezier_to(
-        point(-2.0, ARC_CTRL_POS),
-        point(-ARC_CTRL_POS, 2.0),
-        point(0.0, 2.0),
-    );
-    builder.cubic_bezier_to(
-        point(ARC_CTRL_POS, 2.0),
-        point(2.0, ARC_CTRL_POS),
-        point(2.0, 0.0),
-    );
-    builder.line_to(point(2.0, -2.0));
-    builder.close();
-    let path = builder.build();
-
-    let mut stroke_geometry = VertexBuffers::new();
-    let mut stroke_tessellator = StrokeTessellator::new();
-    stroke_tessellator
-        .tessellate_path(
-            &path,
-            &StrokeOptions::DEFAULT
-                .with_line_width(2.0 * LOGICAL_PIXEL_SIZE)
-                .with_tolerance(GEOMETRY_TOLERANCE),
-            &mut BuffersBuilder::new(&mut stroke_geometry, |v: StrokeVertex| Vertex {
-                position: v.position().into(),
-            }),
-        )
-        .expect("failed to tessellate path");
-
-    let mut fill_geometry = VertexBuffers::new();
-    let mut fill_tessellator = FillTessellator::new();
-    fill_tessellator
-        .tessellate_path(
-            &path,
-            &FillOptions::DEFAULT.with_tolerance(GEOMETRY_TOLERANCE),
-            &mut BuffersBuilder::new(&mut fill_geometry, |v: FillVertex| Vertex {
-                position: v.position().into(),
-            }),
-        )
-        .expect("failed to tessellate path");
-
-    geometry!(device, stroke_geometry, fill_geometry, "AND gate")
-}
-
-struct GeometryStore {
-    and_gate_geometry: (Geometry, Geometry),
-}
-
-impl GeometryStore {
-    fn instance(device: &Device) -> &'static Self {
-        use std::sync::OnceLock;
-
-        static INSTANCE: OnceLock<GeometryStore> = OnceLock::new();
-        INSTANCE.get_or_init(|| GeometryStore {
-            and_gate_geometry: build_and_gate_geometry(device),
-        })
-    }
-}
 
 pub struct ViewportColors {
     pub background_color: [f32; 4],
@@ -537,18 +425,18 @@ impl Viewport {
         if fill_instances.len() > 0 {
             self.draw_primitives(
                 render_state,
-                &geometry.1.vertices,
+                geometry.1.vertices(),
                 &fill_instances,
-                &geometry.1.indices,
+                geometry.1.indices(),
             );
         }
 
         if stroke_instances.len() > 0 {
             self.draw_primitives(
                 render_state,
-                &geometry.0.vertices,
+                geometry.0.vertices(),
                 &stroke_instances,
-                &geometry.0.indices,
+                geometry.0.indices(),
             );
         }
     }
@@ -587,14 +475,33 @@ impl Viewport {
         );
 
         if let Some(circuit) = circuit {
-            self.draw_component_instances(
-                render_state,
-                circuit,
-                |c| matches!(c.kind, ComponentKind::AndGate { .. }),
-                &GeometryStore::instance(&render_state.device).and_gate_geometry,
-                colors.component_color,
-                colors.selected_component_color,
-                colors.background_color,
+            macro_rules! draw_components {
+                ($($component:ident : $geometry:ident),* $(,)?) => {
+                    const _: () = match { ComponentKind::AndGate { width: 1 } } {
+                        $(ComponentKind::$component { .. } => (),)*
+                    };
+
+                    $(
+                        self.draw_component_instances(
+                            render_state,
+                            circuit,
+                            |c| matches!(c.kind, ComponentKind::$component { .. }),
+                            &GeometryStore::instance(&render_state.device).$geometry,
+                            colors.component_color,
+                            colors.selected_component_color,
+                            colors.background_color,
+                        );
+                    )*
+                };
+            }
+
+            draw_components!(
+                AndGate: and_gate_geometry,
+                OrGate: or_gate_geometry,
+                XorGate: xor_gate_geometry,
+                NandGate: nand_gate_geometry,
+                NorGate: nor_gate_geometry,
+                XnorGate: xnor_gate_geometry,
             );
 
             self.wires.draw(

@@ -19,7 +19,7 @@ struct Globals {
 
 #[derive(Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
-pub struct Vertex {
+struct Vertex {
     position: Vec2f,
     selected: u32,
 }

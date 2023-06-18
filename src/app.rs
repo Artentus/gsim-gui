@@ -297,7 +297,12 @@ impl eframe::App for App {
                             .get(&self.state.lang, "nand-gate-tool-tip"),
                     )
                     .clicked()
-                {}
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit]
+                            .add_component(ComponentKind::NandGate { width: 1 });
+                    }
+                }
             });
 
             ui.horizontal(|ui| {
@@ -307,7 +312,12 @@ impl eframe::App for App {
                             .get(&self.state.lang, "or-gate-tool-tip"),
                     )
                     .clicked()
-                {}
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit]
+                            .add_component(ComponentKind::OrGate { width: 1 });
+                    }
+                }
 
                 if show_themed_image_button(&self.nor_gate_image, ctx, self.state.theme, ui)
                     .on_hover_text(
@@ -315,7 +325,12 @@ impl eframe::App for App {
                             .get(&self.state.lang, "nor-gate-tool-tip"),
                     )
                     .clicked()
-                {}
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit]
+                            .add_component(ComponentKind::NorGate { width: 1 });
+                    }
+                }
             });
 
             ui.horizontal(|ui| {
@@ -325,7 +340,12 @@ impl eframe::App for App {
                             .get(&self.state.lang, "xor-gate-tool-tip"),
                     )
                     .clicked()
-                {}
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit]
+                            .add_component(ComponentKind::XorGate { width: 1 });
+                    }
+                }
 
                 if show_themed_image_button(&self.xnor_gate_image, ctx, self.state.theme, ui)
                     .on_hover_text(
@@ -333,7 +353,12 @@ impl eframe::App for App {
                             .get(&self.state.lang, "xnor-gate-tool-tip"),
                     )
                     .clicked()
-                {}
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit]
+                            .add_component(ComponentKind::XnorGate { width: 1 });
+                    }
+                }
             });
 
             ui.horizontal(|ui| {
