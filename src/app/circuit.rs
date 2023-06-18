@@ -771,6 +771,7 @@ impl Circuit {
                     .expect("invalid selection");
 
                 component.mirrored = !component.mirrored;
+                component.rotation = component.rotation.mirror();
             }
             Selection::WireSegment(wire_segment) => {
                 let wire_segment = self
@@ -804,6 +805,7 @@ impl Circuit {
                     let pos = component.position.to_vec2f() - center;
                     component.position = (Vec2f::new(-pos.x, pos.y) + center).floor().to_vec2i();
                     component.mirrored = !component.mirrored;
+                    component.rotation = component.rotation.mirror();
                 }
 
                 for &wire_segment in wire_segments {

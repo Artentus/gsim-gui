@@ -121,6 +121,15 @@ impl Rotation {
         }
     }
 
+    pub fn mirror(self) -> Self {
+        match self {
+            Rotation::Deg0 => Rotation::Deg0,
+            Rotation::Deg90 => Rotation::Deg270,
+            Rotation::Deg180 => Rotation::Deg180,
+            Rotation::Deg270 => Rotation::Deg90,
+        }
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Rotation::Deg0 => "0°",
@@ -152,28 +161,16 @@ impl Component {
     pub fn anchors(&self) -> SmallVec<[Anchor; 3]> {
         let mut anchors = self.kind.anchors();
         for anchor in anchors.iter_mut() {
-            anchor.position = match self.rotation {
-                Rotation::Deg0 => anchor.position,
-                Rotation::Deg90 => {
-                    if self.mirrored {
-                        Vec2i::new(-anchor.position.y, anchor.position.x)
-                    } else {
-                        Vec2i::new(anchor.position.y, -anchor.position.x)
-                    }
-                }
-                Rotation::Deg180 => -anchor.position,
-                Rotation::Deg270 => {
-                    if self.mirrored {
-                        Vec2i::new(anchor.position.y, -anchor.position.x)
-                    } else {
-                        Vec2i::new(-anchor.position.y, anchor.position.x)
-                    }
-                }
-            };
-
             if self.mirrored {
                 anchor.position.x = -anchor.position.x;
             }
+
+            anchor.position = match self.rotation {
+                Rotation::Deg0 => anchor.position,
+                Rotation::Deg90 => Vec2i::new(anchor.position.y, -anchor.position.x),
+                Rotation::Deg180 => -anchor.position,
+                Rotation::Deg270 => Vec2i::new(-anchor.position.y, anchor.position.x),
+            };
 
             anchor.position += self.position;
         }
@@ -183,55 +180,33 @@ impl Component {
     pub fn bounding_box(&self) -> BoundingBox {
         let mut bb = self.kind.bounding_box();
 
+        if self.mirrored {
+            std::mem::swap(&mut bb.left, &mut bb.right);
+            bb.left = -bb.left;
+            bb.right = -bb.right;
+        }
+
         bb = match self.rotation {
             Rotation::Deg0 => bb,
-            Rotation::Deg90 => {
-                if self.mirrored {
-                    BoundingBox {
-                        top: bb.right,
-                        bottom: bb.left,
-                        left: -bb.top,
-                        right: -bb.bottom,
-                    }
-                } else {
-                    BoundingBox {
-                        top: -bb.left,
-                        bottom: -bb.right,
-                        left: bb.bottom,
-                        right: bb.top,
-                    }
-                }
-            }
+            Rotation::Deg90 => BoundingBox {
+                top: -bb.left,
+                bottom: -bb.right,
+                left: bb.bottom,
+                right: bb.top,
+            },
             Rotation::Deg180 => BoundingBox {
                 top: -bb.bottom,
                 bottom: -bb.top,
                 left: -bb.right,
                 right: -bb.left,
             },
-            Rotation::Deg270 => {
-                if self.mirrored {
-                    BoundingBox {
-                        top: -bb.left,
-                        bottom: -bb.right,
-                        left: bb.bottom,
-                        right: bb.top,
-                    }
-                } else {
-                    BoundingBox {
-                        top: bb.right,
-                        bottom: bb.left,
-                        left: -bb.top,
-                        right: -bb.bottom,
-                    }
-                }
-            }
+            Rotation::Deg270 => BoundingBox {
+                top: bb.right,
+                bottom: bb.left,
+                left: -bb.top,
+                right: -bb.bottom,
+            },
         };
-
-        if self.mirrored {
-            std::mem::swap(&mut bb.left, &mut bb.right);
-            bb.left = -bb.left;
-            bb.right = -bb.right;
-        }
 
         bb.top += self.position.y as f32;
         bb.bottom += self.position.y as f32;
@@ -281,9 +256,15 @@ impl Component {
                 });
         });
 
+        let mut mirrored = self.mirrored;
         ui.checkbox(
-            &mut self.mirrored,
+            &mut mirrored,
             locale_manager.get(lang, "mirrored-property-name"),
         );
+
+        if mirrored != self.mirrored {
+            self.mirrored = mirrored;
+            self.rotation = self.rotation.mirror();
+        }
     }
 }
