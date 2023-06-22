@@ -365,13 +365,13 @@ impl Viewport {
     ) {
         assert!(instances.len() < (u32::MAX as usize));
 
-        if instances.len() > 0 {
+        if !instances.is_empty() {
             self.instance_buffer
                 .write(&render_state.device, &render_state.queue, instances);
         }
 
         render_state.render_pass(&self.ms_texture_view, None, None, |pass, _| {
-            if instances.len() > 0 {
+            if !instances.is_empty() {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 pass.set_vertex_buffer(0, vertices.slice());
@@ -383,6 +383,7 @@ impl Viewport {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_component_instances(
         &mut self,
         render_state: &RenderState,
@@ -424,7 +425,7 @@ impl Viewport {
             });
         }
 
-        if fill_instances.len() > 0 {
+        if !fill_instances.is_empty() {
             self.draw_primitives(
                 render_state,
                 geometry.1.vertices(),
@@ -433,7 +434,7 @@ impl Viewport {
             );
         }
 
-        if stroke_instances.len() > 0 {
+        if !stroke_instances.is_empty() {
             self.draw_primitives(
                 render_state,
                 geometry.0.vertices(),

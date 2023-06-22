@@ -30,6 +30,7 @@ macro_rules! anchors {
     };
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Deserialize)]
 pub enum ComponentKind {
     AndGate { width: u8 },

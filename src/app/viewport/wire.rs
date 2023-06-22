@@ -25,6 +25,7 @@ struct Vertex {
 }
 
 const BATCH_SIZE: usize = ((u16::MAX as usize) + 1) / 4;
+#[allow(clippy::identity_op)]
 const INDICES: [u16; BATCH_SIZE * 6] = {
     let mut indices = [0; BATCH_SIZE * 6];
     let mut i = 0;
@@ -87,7 +88,7 @@ impl ViewportWires {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: Some(global_buffer.byte_size().try_into().unwrap()),
+                            min_binding_size: Some(global_buffer.byte_size()),
                         },
                         count: None,
                     }],

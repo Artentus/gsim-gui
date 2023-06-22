@@ -35,7 +35,7 @@ impl Locale {
         let mut errors = vec![];
         let value = self.bundle.format_pattern(pattern, None, &mut errors);
 
-        if errors.len() > 0 {
+        if !errors.is_empty() {
             let mut error_value = String::new();
 
             for err in errors {
@@ -43,7 +43,7 @@ impl Locale {
                     panic!("unexpected error kind");
                 };
 
-                if error_value.len() > 0 {
+                if !error_value.is_empty() {
                     error_value.push('\n');
                 }
                 error_value.push_str(&format!("{err}"));
@@ -103,7 +103,7 @@ impl LocaleManager {
 
     pub fn get<'a>(&'a self, lang: &LangId, key: &'static str) -> Cow<'a, str> {
         self.locales
-            .get(&lang)
+            .get(lang)
             .and_then(|locale| locale.get(key))
             .unwrap_or_else(|| self.get_default(key))
     }

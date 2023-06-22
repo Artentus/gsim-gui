@@ -10,7 +10,7 @@ trait BuilderExt {
 
 impl BuilderExt for lyon::path::path::Builder {
     fn circle(&mut self, center: Point, radius: f32) {
-        const CTRL_POS: f32 = 0.552284749831;
+        const CTRL_POS: f32 = 0.5522848;
 
         self.begin(center + vector(0.0, -1.0) * radius);
         self.cubic_bezier_to(
@@ -98,7 +98,7 @@ macro_rules! geometry {
 }
 
 fn build_and_gate_geometry(device: &Device) -> (Geometry, Geometry) {
-    const CIRCLE_ARC_CTRL_POS: f32 = 0.552284749831;
+    const CIRCLE_ARC_CTRL_POS: f32 = 0.5522848;
 
     let mut builder = Path::builder();
     builder.begin(point(-2.0, -2.0));
@@ -228,7 +228,7 @@ fn build_xor_gate_geometry(device: &Device) -> (Geometry, Geometry) {
 }
 
 fn build_nand_gate_geometry(device: &Device) -> (Geometry, Geometry) {
-    const CIRCLE_ARC_CTRL_POS: f32 = 0.552284749831;
+    const CIRCLE_ARC_CTRL_POS: f32 = 0.5522848;
 
     let mut builder = Path::builder();
     builder.begin(point(-2.0, -2.0));

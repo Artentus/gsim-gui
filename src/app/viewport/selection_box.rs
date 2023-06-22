@@ -89,7 +89,7 @@ impl ViewportSelectionBox {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: Some(global_buffer.byte_size().try_into().unwrap()),
+                            min_binding_size: Some(global_buffer.byte_size()),
                         },
                         count: None,
                     }],
@@ -162,6 +162,7 @@ impl ViewportSelectionBox {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         render_state: &RenderState,

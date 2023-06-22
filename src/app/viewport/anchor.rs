@@ -44,6 +44,8 @@ fn vertices() -> &'static [Vertex; VERTEX_COUNT + 1] {
         let mut vertices = [Vertex {
             position: Vec2f::default(),
         }; VERTEX_COUNT + 1];
+
+        #[allow(clippy::needless_range_loop)]
         for i in 0..VERTEX_COUNT {
             let angle = ((i as f32) / (VERTEX_COUNT as f32)) * std::f32::consts::TAU;
             let (y, x) = angle.sin_cos();
@@ -55,6 +57,7 @@ fn vertices() -> &'static [Vertex; VERTEX_COUNT + 1] {
     })
 }
 
+#[allow(clippy::identity_op)]
 const INDICES: [u16; VERTEX_COUNT * 3] = {
     let mut indices = [0; VERTEX_COUNT * 3];
     let mut i = 0;
@@ -122,7 +125,7 @@ impl ViewportAnchors {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: Some(global_buffer.byte_size().try_into().unwrap()),
+                            min_binding_size: Some(global_buffer.byte_size()),
                         },
                         count: None,
                     }],
@@ -238,7 +241,7 @@ impl ViewportAnchors {
             }
         }
 
-        if instances.len() > 0 {
+        if !instances.is_empty() {
             self.global_buffer.write(
                 &render_state.queue,
                 &[Globals {

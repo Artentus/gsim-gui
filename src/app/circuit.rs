@@ -849,7 +849,7 @@ impl Circuit {
         }
     }
 
-    pub fn update_component_properties<'a>(
+    pub fn update_component_properties(
         &mut self,
         ui: &mut egui::Ui,
         locale_manager: &LocaleManager,

@@ -175,16 +175,14 @@ impl eframe::App for App {
                                     .clicked()
                                 {
                                     if let Some(file_name) = circuit.file_name() {
-                                        std::fs::write(file_name, &Circuit::serialize(circuit))
+                                        std::fs::write(file_name, Circuit::serialize(circuit))
                                             .expect("error saving file");
                                         circuit.set_file_name(file_name.to_owned());
-                                    } else {
-                                        if let Some(file_name) = file_dialog
-                                            .save(None, &Circuit::serialize(circuit))
-                                            .expect("error saving file")
-                                        {
-                                            circuit.set_file_name(file_name);
-                                        }
+                                    } else if let Some(file_name) = file_dialog
+                                        .save(None, &Circuit::serialize(circuit))
+                                        .expect("error saving file")
+                                    {
+                                        circuit.set_file_name(file_name);
                                     }
                                 }
 
@@ -505,15 +503,15 @@ impl eframe::App for App {
                 let mouse_delta = Vec2f::new(mouse_delta.x, -mouse_delta.y);
                 circuit.mouse_moved(mouse_delta, self.drag_mode);
 
-                if response.dragged() {
-                    if ui.input(|state| state.pointer.button_down(PointerButton::Middle)) {
-                        let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
-                        let new_offset = Vec2f::new(
-                            circuit.offset().x - offset_delta.x,
-                            circuit.offset().y + offset_delta.y,
-                        );
-                        circuit.set_offset(new_offset);
-                    }
+                if response.dragged()
+                    && ui.input(|state| state.pointer.button_down(PointerButton::Middle))
+                {
+                    let offset_delta = response.drag_delta() / (circuit.zoom() * BASE_ZOOM);
+                    let new_offset = Vec2f::new(
+                        circuit.offset().x - offset_delta.x,
+                        circuit.offset().y + offset_delta.y,
+                    );
+                    circuit.set_offset(new_offset);
                 }
 
                 if let Some(pos) = response.interact_pointer_pos() {
