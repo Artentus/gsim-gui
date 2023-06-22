@@ -46,14 +46,14 @@ impl ComponentPass {
 
         let global_buffer = StaticBuffer::create(
             &render_state.device,
-            Some("Viewport globals"),
+            Some("Viewport component globals"),
             BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             1,
         );
 
         let instance_buffer = DynamicBuffer::create(
             &render_state.device,
-            Some("Viewport instances"),
+            Some("Viewport component instances"),
             BufferUsages::VERTEX | BufferUsages::COPY_DST,
             128,
         );
