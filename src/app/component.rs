@@ -2,7 +2,7 @@ use super::locale::*;
 use crate::app::math::*;
 use egui::*;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -21,7 +21,7 @@ pub struct Anchor {
 
 macro_rules! anchors {
     ($($kind:ident($x:literal, $y:literal)),* $(,)?) => {
-        smallvec::smallvec![$(
+        smallvec![$(
             Anchor {
                 position: Vec2i::new($x, $y),
                 kind: AnchorKind::$kind,
@@ -146,6 +146,8 @@ pub struct Component {
     pub position: Vec2i,
     pub rotation: Rotation,
     pub mirrored: bool,
+    #[serde(skip)]
+    pub sim_components: SmallVec<[gsim::ComponentId; 4]>,
 }
 
 impl Component {
@@ -155,6 +157,7 @@ impl Component {
             position: Vec2i::default(),
             rotation: Rotation::default(),
             mirrored: false,
+            sim_components: smallvec![],
         }
     }
 

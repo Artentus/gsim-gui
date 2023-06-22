@@ -39,6 +39,8 @@ pub struct WireSegment {
     pub endpoint_a: Vec2i,
     pub midpoints: SmallVec<[Vec2i; 2]>,
     pub endpoint_b: Vec2i,
+    #[serde(skip)]
+    pub sim_wires: SmallVec<[gsim::WireId; 4]>,
 }
 
 impl WireSegment {
@@ -233,6 +235,8 @@ pub struct Circuit {
     secondary_button_down: bool,
     #[serde(skip)]
     file_name: Option<PathBuf>,
+    #[serde(skip)]
+    sim: Option<gsim::Simulator>,
 }
 
 impl Circuit {
@@ -249,6 +253,7 @@ impl Circuit {
             primary_button_down: false,
             secondary_button_down: false,
             file_name: None,
+            sim: None,
         }
     }
 
@@ -577,6 +582,7 @@ impl Circuit {
                                         endpoint_a,
                                         midpoints: smallvec![],
                                         endpoint_b,
+                                        sim_wires: smallvec![],
                                     };
                                     segment.update_midpoints();
 
@@ -903,6 +909,44 @@ impl Circuit {
                 }
             }
             Selection::Multi { .. } => {}
+        }
+    }
+
+    #[inline]
+    pub fn is_simulating(&self) -> bool {
+        self.sim.is_some()
+    }
+
+    pub fn start_simulation(&mut self) -> gsim::SimulationStepResult {
+        use gsim::*;
+
+        let mut builder = SimulatorBuilder::default();
+
+        // TODO: build simulation graph
+
+        let mut sim = builder.build();
+        let result = sim.begin_sim();
+        self.sim = Some(sim);
+        result
+    }
+
+    pub fn step_simulation(&mut self) -> gsim::SimulationStepResult {
+        let Some(sim) = &mut self.sim else {
+            panic!("simulation is not running");
+        };
+
+        sim.step_sim()
+    }
+
+    pub fn stop_simulation(&mut self) {
+        self.sim = None;
+
+        for component in &mut self.components {
+            component.sim_components.clear();
+        }
+
+        for wire_segment in &mut self.wire_segments {
+            wire_segment.sim_wires.clear();
         }
     }
 }
