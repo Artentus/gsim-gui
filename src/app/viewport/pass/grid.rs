@@ -1,7 +1,7 @@
-use super::buffer::*;
-use super::{shader, RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
+use super::super::buffer::*;
+use super::super::{RenderStateEx, ViewportColors, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
+use super::*;
 use crate::app::math::*;
-use crate::size_of;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
 use wgpu::*;
@@ -15,17 +15,11 @@ struct Globals {
     zoom: f32,
 }
 
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Vertex {
-    position: Vec2f,
-}
+vs_input!(
+    Vertex { position: Vec2f }
 
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Instance {
-    offset: Vec2f,
-}
+    Instance { offset: Vec2f }
+);
 
 const VERTICES: [Vertex; 8] = [
     // size 1px
@@ -58,7 +52,7 @@ const VERTICES: [Vertex; 8] = [
 
 const INDICES: [u16; 6] = [0, 1, 2, 1, 3, 2];
 
-pub struct ViewportGrid {
+pub struct GridPass {
     _shader: ShaderModule,
     global_buffer: StaticBuffer<Globals>,
     _bind_group_layout: BindGroupLayout,
@@ -70,7 +64,7 @@ pub struct ViewportGrid {
     pipeline: RenderPipeline,
 }
 
-impl ViewportGrid {
+impl GridPass {
     pub fn create(render_state: &RenderState) -> Self {
         let shader = shader!(render_state.device, "grid");
 
@@ -128,58 +122,13 @@ impl ViewportGrid {
             }],
         });
 
-        let pipeline_layout =
-            render_state
-                .device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: Some("Viewport grid pipeline layout"),
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-
-        let pipeline = render_state
-            .device
-            .create_render_pipeline(&RenderPipelineDescriptor {
-                label: Some("Viewport grid pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: VertexState {
-                    module: &shader,
-                    entry_point: "vs_main",
-                    buffers: &[
-                        VertexBufferLayout {
-                            array_stride: size_of!(Vertex) as BufferAddress,
-                            step_mode: VertexStepMode::Vertex,
-                            attributes: &vertex_attr_array![0 => Float32x2],
-                        },
-                        VertexBufferLayout {
-                            array_stride: size_of!(Instance) as BufferAddress,
-                            step_mode: VertexStepMode::Instance,
-                            attributes: &vertex_attr_array![1 => Float32x2],
-                        },
-                    ],
-                },
-                primitive: PrimitiveState {
-                    topology: PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: FrontFace::Ccw,
-                    cull_mode: None,
-                    unclipped_depth: false,
-                    polygon_mode: PolygonMode::Fill,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: MultisampleState {
-                    count: 4,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                fragment: Some(FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(TextureFormat::Rgba8Unorm.into())],
-                }),
-                multiview: None,
-            });
+        let (pipeline_layout, pipeline) = create_pipeline(
+            &render_state.device,
+            "grid",
+            &shader,
+            &bind_group_layout,
+            &[Vertex::BUFFER_LAYOUT, Instance::BUFFER_LAYOUT],
+        );
 
         Self {
             _shader: shader,
@@ -202,14 +151,13 @@ impl ViewportGrid {
         resolution: Vec2f,
         offset: Vec2f,
         zoom: f32,
-        background_color: [f32; 4],
-        grid_color: [f32; 4],
+        colors: &ViewportColors,
     ) {
         let clear_color = Color {
-            r: background_color[0] as f64,
-            g: background_color[1] as f64,
-            b: background_color[2] as f64,
-            a: background_color[3] as f64,
+            r: colors.background_color[0] as f64,
+            g: colors.background_color[1] as f64,
+            b: colors.background_color[2] as f64,
+            a: colors.background_color[3] as f64,
         };
 
         if zoom < 0.99 {
@@ -220,7 +168,7 @@ impl ViewportGrid {
         self.global_buffer.write(
             &render_state.queue,
             &[Globals {
-                color: grid_color,
+                color: colors.grid_color,
                 resolution,
                 offset,
                 zoom: zoom * BASE_ZOOM,

@@ -1,48 +1,13 @@
+mod buffer;
+
+mod pass;
+use pass::*;
+
 use super::circuit::*;
-use super::component::*;
 use crate::app::math::*;
-use crate::size_of;
-use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
 use egui::TextureId;
 use wgpu::*;
-
-mod buffer;
-use buffer::*;
-
-mod grid;
-use grid::*;
-
-mod wire;
-use wire::*;
-
-mod anchor;
-use anchor::*;
-
-mod selection_box;
-use selection_box::*;
-
-mod geometry;
-use geometry::*;
-
-macro_rules! shader {
-    ($device:expr, $name:literal) => {{
-        const SOURCE: &str = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/",
-            $name,
-            ".wgsl"
-        ));
-
-        const DESC: wgpu::ShaderModuleDescriptor = wgpu::ShaderModuleDescriptor {
-            label: Some($name),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(SOURCE)),
-        };
-
-        $device.create_shader_module(DESC)
-    }};
-}
-pub(self) use shader;
 
 trait RenderStateEx {
     fn render_pass<'env, F>(
@@ -106,23 +71,6 @@ impl RenderStateEx for RenderState {
     }
 }
 
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Globals {
-    resolution: Vec2f,
-    offset: Vec2f,
-    zoom: f32,
-}
-
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Instance {
-    offset: Vec2f,
-    rotation: u32,
-    mirrored: u32,
-    color: [f32; 4],
-}
-
 fn create_viewport_texture(
     render_state: &RenderState,
     width: u32,
@@ -178,28 +126,20 @@ pub struct ViewportColors {
 }
 
 pub struct Viewport {
-    _shader: ShaderModule,
     texture_id: TextureId,
     texture: Texture,
     texture_view: TextureView,
     ms_texture: Texture,
     ms_texture_view: TextureView,
-    global_buffer: StaticBuffer<Globals>,
-    _bind_group_layout: BindGroupLayout,
-    bind_group: BindGroup,
-    instance_buffer: DynamicBuffer<Instance>,
-    _pipeline_layout: PipelineLayout,
-    pipeline: RenderPipeline,
-    grid: ViewportGrid,
-    wires: ViewportWires,
-    anchors: ViewportAnchors,
-    selection_box: ViewportSelectionBox,
+    grid: GridPass,
+    components: ComponentPass,
+    wires: WirePass,
+    anchors: AnchorPass,
+    selection_box: SelectionBoxPass,
 }
 
 impl Viewport {
     pub fn create(render_state: &RenderState, width: u32, height: u32) -> Self {
-        let shader = shader!(render_state.device, "component");
-
         let (texture, texture_view, ms_texture, ms_texture_view) =
             create_viewport_texture(render_state, width, height);
 
@@ -209,118 +149,20 @@ impl Viewport {
             FilterMode::Nearest,
         );
 
-        let global_buffer = StaticBuffer::create(
-            &render_state.device,
-            Some("Viewport globals"),
-            BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            1,
-        );
-
-        let instance_buffer = DynamicBuffer::create(
-            &render_state.device,
-            Some("Viewport instances"),
-            BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            128,
-        );
-
-        let bind_group_layout =
-            render_state
-                .device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    label: None,
-                    entries: &[BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(global_buffer.byte_size()),
-                        },
-                        count: None,
-                    }],
-                });
-
-        let bind_group = render_state.device.create_bind_group(&BindGroupDescriptor {
-            label: None,
-            layout: &bind_group_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: global_buffer.as_binding(),
-            }],
-        });
-
-        let pipeline_layout =
-            render_state
-                .device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: Some("Viewport pipeline layout"),
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-
-        let pipeline = render_state
-            .device
-            .create_render_pipeline(&RenderPipelineDescriptor {
-                label: Some("Viewport pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: VertexState {
-                    module: &shader,
-                    entry_point: "vs_main",
-                    buffers: &[
-                        VertexBufferLayout {
-                            array_stride: size_of!(Vertex) as BufferAddress,
-                            step_mode: VertexStepMode::Vertex,
-                            attributes: &vertex_attr_array![0 => Float32x2],
-                        },
-                        VertexBufferLayout {
-                            array_stride: size_of!(Instance) as BufferAddress,
-                            step_mode: VertexStepMode::Instance,
-                            attributes: &vertex_attr_array![1 => Float32x2, 2 => Uint32, 3 => Uint32, 4 => Float32x4],
-                        },
-                    ],
-                },
-                primitive: PrimitiveState {
-                    topology: PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: FrontFace::Ccw,
-                    cull_mode: None,
-                    unclipped_depth: false,
-                    polygon_mode: PolygonMode::Fill,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: MultisampleState {
-                    count: 4,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                fragment: Some(FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(TextureFormat::Rgba8Unorm.into())],
-                }),
-                multiview: None,
-            });
-
-        let grid = ViewportGrid::create(render_state);
-        let wires = ViewportWires::create(render_state);
-        let anchors = ViewportAnchors::create(render_state);
-        let selection_box = ViewportSelectionBox::create(render_state);
+        let grid = GridPass::create(render_state);
+        let components = ComponentPass::create(render_state);
+        let wires = WirePass::create(render_state);
+        let anchors = AnchorPass::create(render_state);
+        let selection_box = SelectionBoxPass::create(render_state);
 
         Self {
-            _shader: shader,
             texture_id,
             texture,
             texture_view,
             ms_texture,
             ms_texture_view,
-            global_buffer,
-            _bind_group_layout: bind_group_layout,
-            bind_group,
-            instance_buffer,
-            _pipeline_layout: pipeline_layout,
-            pipeline,
             grid,
+            components,
             wires,
             anchors,
             selection_box,
@@ -356,99 +198,11 @@ impl Viewport {
         self.texture_id
     }
 
-    fn draw_primitives(
-        &mut self,
-        render_state: &RenderState,
-        vertices: &StaticBuffer<Vertex>,
-        instances: &[Instance],
-        indices: &StaticBuffer<u16>,
-    ) {
-        assert!(instances.len() < (u32::MAX as usize));
-
-        if !instances.is_empty() {
-            self.instance_buffer
-                .write(&render_state.device, &render_state.queue, instances);
-        }
-
-        render_state.render_pass(&self.ms_texture_view, None, None, |pass, _| {
-            if !instances.is_empty() {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.bind_group, &[]);
-                pass.set_vertex_buffer(0, vertices.slice());
-                pass.set_vertex_buffer(1, self.instance_buffer.slice());
-                pass.set_index_buffer(indices.slice(), IndexFormat::Uint16);
-
-                pass.draw_indexed(0..(indices.len() as u32), 0, 0..(instances.len() as u32));
-            }
-        });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn draw_component_instances(
-        &mut self,
-        render_state: &RenderState,
-        circuit: &Circuit,
-        filter: impl Fn(&Component) -> bool,
-        geometry: &(Geometry, Geometry),
-        stroke_color: [f32; 4],
-        selected_stroke_color: [f32; 4],
-        fill_color: [f32; 4],
-    ) {
-        // TODO: cull the components to the visible area
-
-        let mut stroke_instances = Vec::new();
-        let mut fill_instances = Vec::new();
-        for (i, c) in circuit
-            .components()
-            .iter()
-            .enumerate()
-            .filter(|&(_, c)| filter(c))
-        {
-            let selected = circuit.selection().contains_component(i);
-
-            stroke_instances.push(Instance {
-                offset: c.position.to_vec2f(),
-                rotation: c.rotation as u32,
-                mirrored: c.mirrored as u32,
-                color: if selected {
-                    selected_stroke_color
-                } else {
-                    stroke_color
-                },
-            });
-
-            fill_instances.push(Instance {
-                offset: c.position.to_vec2f(),
-                rotation: c.rotation as u32,
-                mirrored: c.mirrored as u32,
-                color: fill_color,
-            });
-        }
-
-        if !fill_instances.is_empty() {
-            self.draw_primitives(
-                render_state,
-                geometry.1.vertices(),
-                &fill_instances,
-                geometry.1.indices(),
-            );
-        }
-
-        if !stroke_instances.is_empty() {
-            self.draw_primitives(
-                render_state,
-                geometry.0.vertices(),
-                &stroke_instances,
-                geometry.0.indices(),
-            );
-        }
-    }
-
     pub fn draw(
         &mut self,
         render_state: &RenderState,
         circuit: Option<&Circuit>,
-        colors: ViewportColors,
+        colors: &ViewportColors,
     ) {
         let width = self.texture.width() as f32;
         let height = self.texture.height() as f32;
@@ -464,47 +218,18 @@ impl Viewport {
             resolution,
             offset,
             zoom,
-            colors.background_color,
-            colors.grid_color,
-        );
-
-        self.global_buffer.write(
-            &render_state.queue,
-            &[Globals {
-                resolution,
-                offset,
-                zoom: zoom * BASE_ZOOM,
-            }],
+            colors,
         );
 
         if let Some(circuit) = circuit {
-            macro_rules! draw_components {
-                ($($component:ident : $geometry:ident),* $(,)?) => {
-                    const _: () = match { ComponentKind::AndGate { width: 1 } } {
-                        $(ComponentKind::$component { .. } => (),)*
-                    };
-
-                    $(
-                        self.draw_component_instances(
-                            render_state,
-                            circuit,
-                            |c| matches!(c.kind, ComponentKind::$component { .. }),
-                            &GeometryStore::instance(&render_state.device).$geometry,
-                            colors.component_color,
-                            colors.selected_component_color,
-                            colors.background_color,
-                        );
-                    )*
-                };
-            }
-
-            draw_components!(
-                AndGate: and_gate_geometry,
-                OrGate: or_gate_geometry,
-                XorGate: xor_gate_geometry,
-                NandGate: nand_gate_geometry,
-                NorGate: nor_gate_geometry,
-                XnorGate: xnor_gate_geometry,
+            self.components.draw(
+                render_state,
+                &self.ms_texture_view,
+                circuit,
+                resolution,
+                offset,
+                zoom,
+                colors,
             );
 
             self.wires.draw(

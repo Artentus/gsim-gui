@@ -1,5 +1,4 @@
-use super::{BufferUsages, Device, StaticBuffer, Vec2f, LOGICAL_PIXEL_SIZE};
-use bytemuck::{Pod, Zeroable};
+use super::{BufferUsages, Device, StaticBuffer, Vertex, LOGICAL_PIXEL_SIZE};
 use lyon::math::*;
 use lyon::path::*;
 use lyon::tessellation::*;
@@ -38,12 +37,6 @@ impl BuilderExt for lyon::path::path::Builder {
 }
 
 const GEOMETRY_TOLERANCE: f32 = LOGICAL_PIXEL_SIZE / 16.0;
-
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-pub(super) struct Vertex {
-    position: Vec2f,
-}
 
 pub(super) struct Geometry {
     vertices: StaticBuffer<Vertex>,

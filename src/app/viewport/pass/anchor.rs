@@ -1,9 +1,10 @@
-use super::buffer::*;
-use super::{shader, RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
+use super::super::buffer::*;
+use super::super::{RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
+use super::*;
 use crate::app::circuit::Circuit;
 use crate::app::component::AnchorKind;
 use crate::app::math::*;
-use crate::{size_of, HashSet};
+use crate::HashSet;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
 use wgpu::*;
@@ -20,19 +21,15 @@ struct Globals {
     zoom: f32,
 }
 
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Vertex {
-    position: Vec2f,
-}
+vs_input!(
+    Vertex { position: Vec2f }
 
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Instance {
-    offset: Vec2f,
-    kind: u32,
-    size: f32,
-}
+    Instance {
+        offset: Vec2f,
+        kind: u32,
+        size: f32,
+    }
+);
 
 const VERTEX_COUNT: usize = 24;
 
@@ -70,7 +67,7 @@ const INDICES: [u16; VERTEX_COUNT * 3] = {
     indices
 };
 
-pub struct ViewportAnchors {
+pub struct AnchorPass {
     _shader: ShaderModule,
     global_buffer: StaticBuffer<Globals>,
     _bind_group_layout: BindGroupLayout,
@@ -82,7 +79,7 @@ pub struct ViewportAnchors {
     pipeline: RenderPipeline,
 }
 
-impl ViewportAnchors {
+impl AnchorPass {
     pub fn create(render_state: &RenderState) -> Self {
         let shader = shader!(render_state.device, "anchor");
 
@@ -140,58 +137,13 @@ impl ViewportAnchors {
             }],
         });
 
-        let pipeline_layout =
-            render_state
-                .device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: Some("Viewport anchor pipeline layout"),
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-
-        let pipeline = render_state
-            .device
-            .create_render_pipeline(&RenderPipelineDescriptor {
-                label: Some("Viewport anchor pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: VertexState {
-                    module: &shader,
-                    entry_point: "vs_main",
-                    buffers: &[
-                        VertexBufferLayout {
-                            array_stride: size_of!(Vertex) as BufferAddress,
-                            step_mode: VertexStepMode::Vertex,
-                            attributes: &vertex_attr_array![0 => Float32x2],
-                        },
-                        VertexBufferLayout {
-                            array_stride: size_of!(Instance) as BufferAddress,
-                            step_mode: VertexStepMode::Instance,
-                            attributes: &vertex_attr_array![1 => Float32x2, 2 => Uint32, 3 => Float32],
-                        },
-                    ],
-                },
-                primitive: PrimitiveState {
-                    topology: PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: FrontFace::Ccw,
-                    cull_mode: None,
-                    unclipped_depth: false,
-                    polygon_mode: PolygonMode::Fill,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: MultisampleState {
-                    count: 4,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                fragment: Some(FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(TextureFormat::Rgba8Unorm.into())],
-                }),
-                multiview: None,
-            });
+        let (pipeline_layout, pipeline) = create_pipeline(
+            &render_state.device,
+            "anchor",
+            &shader,
+            &bind_group_layout,
+            &[Vertex::BUFFER_LAYOUT, Instance::BUFFER_LAYOUT],
+        );
 
         Self {
             _shader: shader,

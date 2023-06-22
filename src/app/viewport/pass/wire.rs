@@ -1,8 +1,8 @@
-use super::buffer::*;
-use super::{shader, RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
+use super::super::buffer::*;
+use super::super::{RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
+use super::*;
 use crate::app::circuit::Circuit;
 use crate::app::math::*;
-use crate::size_of;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
 use wgpu::*;
@@ -17,12 +17,10 @@ struct Globals {
     zoom: f32,
 }
 
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-struct Vertex {
+vs_input!(Vertex {
     position: Vec2f,
     selected: u32,
-}
+});
 
 const BATCH_SIZE: usize = ((u16::MAX as usize) + 1) / 4;
 #[allow(clippy::identity_op)]
@@ -41,7 +39,7 @@ const INDICES: [u16; BATCH_SIZE * 6] = {
     indices
 };
 
-pub struct ViewportWires {
+pub struct WirePass {
     _shader: ShaderModule,
     global_buffer: StaticBuffer<Globals>,
     _bind_group_layout: BindGroupLayout,
@@ -52,7 +50,7 @@ pub struct ViewportWires {
     pipeline: RenderPipeline,
 }
 
-impl ViewportWires {
+impl WirePass {
     pub fn create(render_state: &RenderState) -> Self {
         let shader = shader!(render_state.device, "wire");
 
@@ -103,51 +101,13 @@ impl ViewportWires {
             }],
         });
 
-        let pipeline_layout =
-            render_state
-                .device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: Some("Viewport wire pipeline layout"),
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-
-        let pipeline = render_state
-            .device
-            .create_render_pipeline(&RenderPipelineDescriptor {
-                label: Some("Viewport wire pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: VertexState {
-                    module: &shader,
-                    entry_point: "vs_main",
-                    buffers: &[VertexBufferLayout {
-                        array_stride: size_of!(Vertex) as BufferAddress,
-                        step_mode: VertexStepMode::Vertex,
-                        attributes: &vertex_attr_array![0 => Float32x2, 1 => Uint32],
-                    }],
-                },
-                primitive: PrimitiveState {
-                    topology: PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: FrontFace::Ccw,
-                    cull_mode: None,
-                    unclipped_depth: false,
-                    polygon_mode: PolygonMode::Fill,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: MultisampleState {
-                    count: 4,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                fragment: Some(FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(TextureFormat::Rgba8Unorm.into())],
-                }),
-                multiview: None,
-            });
+        let (pipeline_layout, pipeline) = create_pipeline(
+            &render_state.device,
+            "wire",
+            &shader,
+            &bind_group_layout,
+            &[Vertex::BUFFER_LAYOUT],
+        );
 
         Self {
             _shader: shader,

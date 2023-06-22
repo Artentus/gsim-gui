@@ -468,7 +468,7 @@ impl eframe::App for App {
             viewport.draw(
                 render_state,
                 selected_circuit.as_deref(),
-                ViewportColors {
+                &ViewportColors {
                     background_color: background_color.to_array(),
                     grid_color: grid_color.to_array(),
                     component_color: component_color.to_array(),
