@@ -238,6 +238,33 @@ impl eframe::App for App {
 
         TopBottomPanel::top("tool_bar").show(ctx, |ui| {
             menu::bar(ui, |ui| {
+                let selected_circuit = self.selected_circuit.map(|i| &mut self.circuits[i]);
+
+                if let Some(selected_circuit) = selected_circuit {
+                    // TODO: use icon buttons
+
+                    if selected_circuit.is_simulating() {
+                        if ui.button("stop sim").clicked() {
+                            selected_circuit.stop_simulation();
+                        }
+                    } else {
+                        if ui.button("start sim").clicked() {
+                            // TODO: display error
+                            let _result = selected_circuit.start_simulation();
+                        }
+                    }
+
+                    if ui
+                        .add_enabled(selected_circuit.is_simulating(), Button::new("step sim"))
+                        .clicked()
+                    {
+                        // TODO: display error
+                        let _result = selected_circuit.step_simulation();
+                    }
+
+                    // TODO: free-run simulation
+                }
+
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let target_theme_name = match self.state.theme {
                         Theme::Light => {
@@ -269,6 +296,7 @@ impl eframe::App for App {
 
         SidePanel::left("component_picker").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // TODO: use icon buttons
                 ui.radio_value(&mut self.drag_mode, DragMode::BoxSelection, "Select");
                 ui.radio_value(&mut self.drag_mode, DragMode::DrawWire, "Draw Wires");
             });
