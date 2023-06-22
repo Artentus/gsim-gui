@@ -932,7 +932,7 @@ impl Circuit {
         self.sim.is_some()
     }
 
-    pub fn start_simulation(&mut self) -> gsim::SimulationStepResult {
+    pub fn start_simulation(&mut self, max_steps: u64) -> gsim::SimulationRunResult {
         use gsim::*;
 
         let mut builder = SimulatorBuilder::default();
@@ -944,17 +944,25 @@ impl Circuit {
         //  3. Create component(s) in simulation graph for each editor component
 
         let mut sim = builder.build();
-        let result = sim.begin_sim();
-        self.sim = Some(sim);
+        let result = sim.run_sim(max_steps);
+        if matches!(result, gsim::SimulationRunResult::Ok) {
+            self.sim = Some(sim);
+        }
         result
     }
 
-    pub fn step_simulation(&mut self) -> gsim::SimulationStepResult {
+    pub fn step_simulation(&mut self, max_steps: u64) -> gsim::SimulationRunResult {
         let Some(sim) = &mut self.sim else {
             panic!("simulation is not running");
         };
 
-        sim.step_sim()
+        // TODO: toggle all clock sources
+
+        let result = sim.run_sim(max_steps);
+        if !matches!(result, gsim::SimulationRunResult::Ok) {
+            self.sim = None;
+        }
+        result
     }
 
     pub fn stop_simulation(&mut self) {

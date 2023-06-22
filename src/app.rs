@@ -24,6 +24,8 @@ use viewport::*;
 mod file_dialog;
 use file_dialog::*;
 
+const DEFAULT_MAX_STEPS: u64 = 10_000;
+
 #[inline]
 fn show_themed_image_button(
     image: &ThemedImage,
@@ -39,6 +41,7 @@ fn show_themed_image_button(
 struct AppState {
     theme: Theme,
     lang: LangId,
+    max_steps: u64,
 }
 
 impl Default for AppState {
@@ -46,6 +49,7 @@ impl Default for AppState {
         Self {
             theme: Theme::default(),
             lang: DEFAULT_LANG,
+            max_steps: DEFAULT_MAX_STEPS,
         }
     }
 }
@@ -250,7 +254,7 @@ impl eframe::App for App {
                     } else {
                         if ui.button("start sim").clicked() {
                             // TODO: display error
-                            let _result = selected_circuit.start_simulation();
+                            let _result = selected_circuit.start_simulation(self.state.max_steps);
                         }
                     }
 
@@ -259,7 +263,7 @@ impl eframe::App for App {
                         .clicked()
                     {
                         // TODO: display error
-                        let _result = selected_circuit.step_simulation();
+                        let _result = selected_circuit.step_simulation(self.state.max_steps);
                     }
 
                     // TODO: free-run simulation
