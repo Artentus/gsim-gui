@@ -393,6 +393,8 @@ impl Viewport {
         selected_stroke_color: [f32; 4],
         fill_color: [f32; 4],
     ) {
+        // TODO: cull the components to the visible area
+
         let mut stroke_instances = Vec::new();
         let mut fill_instances = Vec::new();
         for (i, c) in circuit

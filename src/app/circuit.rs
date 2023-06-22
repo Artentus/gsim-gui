@@ -456,6 +456,21 @@ impl Circuit {
             self.drag_state = DragState::None;
         }
 
+        // TODO:
+        //   If we were drawing a wire segment we want to potentially split existing
+        //   segments if they exactly intersect with one of the new segments endpoints.
+        //
+        //   x-----------------------x
+        //               ^ dragging on top
+        //               x
+        //               |
+        //               |
+        //
+        //               v split existing segment here
+        //   x-----------x-----------x
+        //               |
+        //               |
+
         self.primary_button_down = false;
     }
 
@@ -923,6 +938,10 @@ impl Circuit {
         let mut builder = SimulatorBuilder::default();
 
         // TODO: build simulation graph
+        //
+        //  1. Find connected nets of wire segments
+        //  2. Create wire(s) in simulation graph for each net
+        //  3. Create component(s) in simulation graph for each editor component
 
         let mut sim = builder.build();
         let result = sim.begin_sim();

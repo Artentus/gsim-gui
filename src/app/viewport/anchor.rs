@@ -212,6 +212,8 @@ impl ViewportAnchors {
         offset: Vec2f,
         zoom: f32,
     ) {
+        // TODO: cull the anchors to the visible area
+
         let mut segment_end_points = HashSet::default();
         for segment in circuit.wire_segments() {
             segment_end_points.insert(segment.endpoint_a);

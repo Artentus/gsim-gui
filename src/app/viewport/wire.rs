@@ -169,6 +169,8 @@ impl ViewportWires {
         offset: Vec2f,
         zoom: f32,
     ) {
+        // TODO: cull the wire segments to the visible area
+
         self.global_buffer.write(
             &render_state.queue,
             &[Globals {
@@ -188,6 +190,7 @@ impl ViewportWires {
 
             let selected = circuit.selection().contains_wire_segment(i);
 
+            // TODO: correctly join the corners of the path if the segment has midpoints
             let mut a = segment.endpoint_a.to_vec2f();
             for b in midpoints.chain(endpoint_b).map(Vec2i::to_vec2f) {
                 let dir = (b - a).normalized();
