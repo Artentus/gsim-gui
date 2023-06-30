@@ -73,7 +73,12 @@ impl ComponentKind {
         }
     }
 
-    fn update_properties(&mut self, ui: &mut Ui, locale_manager: &LocaleManager, lang: &LangId) {
+    fn update_properties(
+        &mut self,
+        ui: &mut Ui,
+        locale_manager: &LocaleManager,
+        lang: &LangId,
+    ) -> bool {
         match self {
             ComponentKind::AndGate { width }
             | ComponentKind::OrGate { width }
@@ -87,9 +92,15 @@ impl ComponentKind {
                     let mut width_text = format!("{width}");
                     ui.text_edit_singleline(&mut width_text);
                     if let Ok(new_width) = width_text.parse::<u8>() {
-                        *width = new_width;
+                        if new_width != *width {
+                            *width = new_width;
+                            return true;
+                        }
                     }
-                });
+
+                    false
+                })
+                .inner
             }
         }
     }
@@ -236,8 +247,8 @@ impl Component {
         ui: &mut Ui,
         locale_manager: &LocaleManager,
         lang: &LangId,
-    ) {
-        self.kind.update_properties(ui, locale_manager, lang);
+    ) -> bool {
+        let mut requires_redraw = self.kind.update_properties(ui, locale_manager, lang);
 
         ui.horizontal(|ui| {
             ui.label("X:");
@@ -245,7 +256,10 @@ impl Component {
             let mut x_text = format!("{}", self.position.x);
             ui.text_edit_singleline(&mut x_text);
             if let Ok(new_x) = x_text.parse() {
-                self.position.x = new_x;
+                if new_x != self.position.x {
+                    self.position.x = new_x;
+                    requires_redraw = true;
+                }
             }
         });
 
@@ -255,7 +269,10 @@ impl Component {
             let mut y_text = format!("{}", self.position.y);
             ui.text_edit_singleline(&mut y_text);
             if let Ok(new_y) = y_text.parse() {
-                self.position.y = new_y;
+                if new_y != self.position.y {
+                    self.position.y = new_y;
+                    requires_redraw = true;
+                }
             }
         });
 
@@ -265,8 +282,15 @@ impl Component {
             ComboBox::from_id_source("rotation_property")
                 .selected_text(self.rotation.as_str())
                 .show_ui(ui, |ui| {
+                    let mut rotation = self.rotation;
+
                     for rot in Rotation::ALL {
-                        ui.selectable_value(&mut self.rotation, rot, rot.as_str());
+                        ui.selectable_value(&mut rotation, rot, rot.as_str());
+                    }
+
+                    if rotation != self.rotation {
+                        self.rotation = rotation;
+                        requires_redraw = true;
                     }
                 });
         });
@@ -280,6 +304,9 @@ impl Component {
         if mirrored != self.mirrored {
             self.mirrored = mirrored;
             self.rotation = self.rotation.mirror();
+            requires_redraw = true;
         }
+
+        requires_redraw
     }
 }

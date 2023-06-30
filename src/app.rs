@@ -75,6 +75,7 @@ pub struct App {
     circuits: Vec<Circuit>,
     selected_circuit: Option<usize>,
     drag_mode: DragMode,
+    requires_redraw: bool,
 }
 
 impl App {
@@ -110,6 +111,7 @@ impl App {
             circuits: vec![],
             selected_circuit: None,
             drag_mode: DragMode::default(),
+            requires_redraw: true,
         }
     }
 }
@@ -138,6 +140,7 @@ impl eframe::App for App {
 
             self.selected_circuit = Some(self.circuits.len());
             self.circuits.push(circuit);
+            self.requires_redraw = true;
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -146,6 +149,7 @@ impl eframe::App for App {
 
             self.selected_circuit = Some(self.circuits.len());
             self.circuits.push(circuit);
+            self.requires_redraw = true;
         }
 
         TopBottomPanel::top("main_menu").show(ctx, |ui| {
@@ -159,6 +163,7 @@ impl eframe::App for App {
                         {
                             self.selected_circuit = Some(self.circuits.len());
                             self.circuits.push(Circuit::new());
+                            self.requires_redraw = true;
                         }
 
                         if ui
@@ -250,12 +255,12 @@ impl eframe::App for App {
                     if selected_circuit.is_simulating() {
                         if ui.button("stop sim").clicked() {
                             selected_circuit.stop_simulation();
+                            self.requires_redraw = true;
                         }
-                    } else {
-                        if ui.button("start sim").clicked() {
-                            // TODO: display error
-                            let _result = selected_circuit.start_simulation(self.state.max_steps);
-                        }
+                    } else if ui.button("start sim").clicked() {
+                        // TODO: display error
+                        let _result = selected_circuit.start_simulation(self.state.max_steps);
+                        self.requires_redraw = true;
                     }
 
                     if ui
@@ -264,6 +269,7 @@ impl eframe::App for App {
                     {
                         // TODO: display error
                         let _result = selected_circuit.step_simulation(self.state.max_steps);
+                        self.requires_redraw = true;
                     }
 
                     // TODO: free-run simulation
@@ -318,6 +324,7 @@ impl eframe::App for App {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
                             .add_component(ComponentKind::AndGate { width: 1 });
+                        self.requires_redraw = true;
                     }
                 }
 
@@ -331,6 +338,7 @@ impl eframe::App for App {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
                             .add_component(ComponentKind::NandGate { width: 1 });
+                        self.requires_redraw = true;
                     }
                 }
             });
@@ -346,6 +354,7 @@ impl eframe::App for App {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
                             .add_component(ComponentKind::OrGate { width: 1 });
+                        self.requires_redraw = true;
                     }
                 }
 
@@ -359,6 +368,7 @@ impl eframe::App for App {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
                             .add_component(ComponentKind::NorGate { width: 1 });
+                        self.requires_redraw = true;
                     }
                 }
             });
@@ -374,6 +384,7 @@ impl eframe::App for App {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
                             .add_component(ComponentKind::XorGate { width: 1 });
+                        self.requires_redraw = true;
                     }
                 }
 
@@ -387,6 +398,7 @@ impl eframe::App for App {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
                             .add_component(ComponentKind::XnorGate { width: 1 });
+                        self.requires_redraw = true;
                     }
                 }
             });
@@ -409,11 +421,8 @@ impl eframe::App for App {
 
         SidePanel::right("property_view").show(ctx, |ui| {
             if let Some(selected_circuit) = self.selected_circuit {
-                self.circuits[selected_circuit].update_component_properties(
-                    ui,
-                    &self.locale_manager,
-                    &self.state.lang,
-                );
+                self.requires_redraw |= self.circuits[selected_circuit]
+                    .update_component_properties(ui, &self.locale_manager, &self.state.lang);
             }
 
             ui.with_layout(Layout::bottom_up(Align::RIGHT), |ui| {
@@ -428,7 +437,9 @@ impl eframe::App for App {
                 ui.toggle_value(&mut selected, circuit.name());
 
                 if selected {
+                    let old_selected = self.selected_circuit;
                     self.selected_circuit = Some(i);
+                    self.requires_redraw |= self.selected_circuit != old_selected;
                 }
             }
         });
@@ -445,36 +456,21 @@ impl eframe::App for App {
 
         CentralPanel::default().show(ctx, |ui| {
             let render_state = frame.wgpu_render_state().unwrap();
-            let selected_circuit = self.selected_circuit.map(|i| &mut self.circuits[i]);
 
             let viewport_size = ui.available_size();
             let viewport_width = viewport_size.x.max(1.0) as u32;
             let viewport_height = viewport_size.y.max(1.0) as u32;
 
             let viewport = if let Some(viewport) = self.viewport.as_mut() {
-                viewport.resize(render_state, viewport_width, viewport_height);
+                self.requires_redraw |=
+                    viewport.resize(render_state, viewport_width, viewport_height);
                 viewport
             } else {
                 let viewport = Viewport::create(render_state, viewport_width, viewport_height);
+                self.requires_redraw = true;
                 self.viewport = Some(viewport);
                 self.viewport.as_mut().unwrap()
             };
-
-            let background_color: Rgba = ui.visuals().extreme_bg_color.into();
-            let grid_color: Rgba = ui.visuals().weak_text_color().into();
-            let component_color: Rgba = ui.visuals().text_color().into();
-            let selected_component_color: Rgba = ui.visuals().strong_text_color().into();
-
-            viewport.draw(
-                render_state,
-                selected_circuit.as_deref(),
-                &ViewportColors {
-                    background_color: background_color.to_array(),
-                    grid_color: grid_color.to_array(),
-                    component_color: component_color.to_array(),
-                    selected_component_color: selected_component_color.to_array(),
-                },
-            );
 
             let response = Image::new(
                 viewport.texture_id(),
@@ -483,6 +479,7 @@ impl eframe::App for App {
             .sense(Sense::click_and_drag())
             .ui(ui);
 
+            let selected_circuit = self.selected_circuit.map(|i| &mut self.circuits[i]);
             if let Some(circuit) = selected_circuit {
                 let viewport_rect = response.rect;
 
@@ -493,47 +490,55 @@ impl eframe::App for App {
                         rel_pos -= response.rect.size() * 0.5;
 
                         if ui.input(|state| state.pointer.button_pressed(PointerButton::Primary)) {
-                            circuit.primary_button_pressed(rel_pos.into());
+                            self.requires_redraw |= circuit.primary_button_pressed(rel_pos.into());
                         } else if ui
                             .input(|state| state.pointer.button_pressed(PointerButton::Secondary))
                         {
-                            circuit.secondary_button_pressed(rel_pos.into());
+                            self.requires_redraw |=
+                                circuit.secondary_button_pressed(rel_pos.into());
                         }
                     }
                 }
 
                 if ui.input(|state| state.key_pressed(Key::R)) {
                     circuit.rotate_selection();
+                    self.requires_redraw = true;
                 }
 
                 if ui.input(|state| state.key_pressed(Key::M)) {
                     circuit.mirror_selection();
+                    self.requires_redraw = true;
                 }
 
                 if ui.input(|state| state.key_pressed(Key::ArrowUp)) {
                     circuit.move_selection(Vec2i::new(0, 1));
+                    self.requires_redraw = true;
                 }
 
                 if ui.input(|state| state.key_pressed(Key::ArrowDown)) {
                     circuit.move_selection(Vec2i::new(0, -1));
+                    self.requires_redraw = true;
                 }
 
                 if ui.input(|state| state.key_pressed(Key::ArrowLeft)) {
                     circuit.move_selection(Vec2i::new(-1, 0));
+                    self.requires_redraw = true;
                 }
 
                 if ui.input(|state| state.key_pressed(Key::ArrowRight)) {
                     circuit.move_selection(Vec2i::new(1, 0));
+                    self.requires_redraw = true;
                 }
 
                 const ZOOM_LEVELS: f32 = 10.0;
                 let zoom_delta = ui.input(|state| state.scroll_delta.y) / 120.0;
-                circuit.set_linear_zoom(circuit.linear_zoom() + (zoom_delta / ZOOM_LEVELS));
+                self.requires_redraw |=
+                    circuit.set_linear_zoom(circuit.linear_zoom() + (zoom_delta / ZOOM_LEVELS));
 
                 let mouse_delta = ui.input(|state| state.pointer.delta());
                 let mouse_delta = mouse_delta / (circuit.zoom() * BASE_ZOOM);
                 let mouse_delta = Vec2f::new(mouse_delta.x, -mouse_delta.y);
-                circuit.mouse_moved(mouse_delta, self.drag_mode);
+                self.requires_redraw |= circuit.mouse_moved(mouse_delta, self.drag_mode);
 
                 if response.dragged()
                     && ui.input(|state| state.pointer.button_down(PointerButton::Middle))
@@ -543,7 +548,7 @@ impl eframe::App for App {
                         circuit.offset().x - offset_delta.x,
                         circuit.offset().y + offset_delta.y,
                     );
-                    circuit.set_offset(new_offset);
+                    self.requires_redraw |= circuit.set_offset(new_offset);
                 }
 
                 if let Some(pos) = response.interact_pointer_pos() {
@@ -553,14 +558,37 @@ impl eframe::App for App {
                         rel_pos -= response.rect.size() * 0.5;
 
                         if ui.input(|state| state.pointer.button_released(PointerButton::Primary)) {
-                            circuit.primary_button_released(rel_pos.into());
+                            self.requires_redraw |= circuit.primary_button_released(rel_pos.into());
                         } else if ui
                             .input(|state| state.pointer.button_released(PointerButton::Secondary))
                         {
-                            circuit.secondary_button_released(rel_pos.into());
+                            self.requires_redraw |=
+                                circuit.secondary_button_released(rel_pos.into());
                         }
                     }
                 }
+            }
+
+            if self.requires_redraw {
+                let selected_circuit = self.selected_circuit.map(|i| &self.circuits[i]);
+
+                let background_color: Rgba = ui.visuals().extreme_bg_color.into();
+                let grid_color: Rgba = ui.visuals().weak_text_color().into();
+                let component_color: Rgba = ui.visuals().text_color().into();
+                let selected_component_color: Rgba = ui.visuals().strong_text_color().into();
+
+                viewport.draw(
+                    render_state,
+                    selected_circuit,
+                    &ViewportColors {
+                        background_color: background_color.to_array(),
+                        grid_color: grid_color.to_array(),
+                        component_color: component_color.to_array(),
+                        selected_component_color: selected_component_color.to_array(),
+                    },
+                );
+
+                self.requires_redraw = false;
             }
         });
     }

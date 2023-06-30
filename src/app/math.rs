@@ -299,7 +299,10 @@ impl Vec2i {
     }
 }
 
-def_vec2!(Vec2f[f32]);
+def_vec2!(
+    #[derive(PartialEq)]
+    Vec2f[f32]
+);
 
 #[allow(dead_code)]
 impl Vec2f {

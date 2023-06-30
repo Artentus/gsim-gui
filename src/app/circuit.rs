@@ -268,8 +268,10 @@ impl Circuit {
     }
 
     #[inline]
-    pub fn set_offset(&mut self, offset: Vec2f) {
+    pub fn set_offset(&mut self, offset: Vec2f) -> bool {
+        let old_offset = self.offset;
         self.offset = offset;
+        old_offset != offset
     }
 
     #[inline]
@@ -277,9 +279,15 @@ impl Circuit {
         self.linear_zoom
     }
 
-    pub fn set_linear_zoom(&mut self, zoom: f32) {
-        self.linear_zoom = zoom.clamp(MIN_LINEAR_ZOOM, MAX_LINEAR_ZOOM);
-        self.zoom = linear_to_zoom(self.linear_zoom);
+    pub fn set_linear_zoom(&mut self, zoom: f32) -> bool {
+        let new_linear_zoom = zoom.clamp(MIN_LINEAR_ZOOM, MAX_LINEAR_ZOOM);
+        if new_linear_zoom != self.linear_zoom {
+            self.linear_zoom = new_linear_zoom;
+            self.zoom = linear_to_zoom(self.linear_zoom);
+            true
+        } else {
+            false
+        }
     }
 
     #[inline]
@@ -355,7 +363,7 @@ impl Circuit {
         HitTestResult::None
     }
 
-    pub fn primary_button_pressed(&mut self, pos: Vec2f) {
+    pub fn primary_button_pressed(&mut self, pos: Vec2f) -> bool {
         assert!(
             is_discriminant!(self.drag_state, DragState::None),
             "invalid drag state"
@@ -364,21 +372,32 @@ impl Circuit {
         let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
         let hit = self.hit_test(logical_pos);
 
-        match hit {
+        let requires_redraw = match hit {
             HitTestResult::None => {
-                self.selection = Selection::None;
+                if !matches!(self.selection, Selection::None) {
+                    self.selection = Selection::None;
+                    true
+                } else {
+                    false
+                }
             }
             HitTestResult::Component(component) => {
                 if !self.selection.contains_component(component) {
                     self.selection = Selection::Component(component);
+                    true
+                } else {
+                    false
                 }
             }
             HitTestResult::WireSegment(wire_segment) => {
                 if !self.selection.contains_wire_segment(wire_segment) {
                     self.selection = Selection::WireSegment(wire_segment);
+                    true
+                } else {
+                    false
                 }
             }
-        }
+        };
 
         self.drag_state = DragState::Deadzone {
             drag_start: logical_pos,
@@ -386,9 +405,13 @@ impl Circuit {
         };
 
         self.primary_button_down = true;
+
+        requires_redraw
     }
 
-    pub fn primary_button_released(&mut self, pos: Vec2f) {
+    pub fn primary_button_released(&mut self, pos: Vec2f) -> bool {
+        let mut requires_redraw = false;
+
         if self.primary_button_down {
             if is_discriminant!(self.drag_state, DragState::None) {
                 let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
@@ -396,13 +419,18 @@ impl Circuit {
 
                 match hit {
                     HitTestResult::None => {
-                        self.selection = Selection::None;
+                        if !matches!(self.selection, Selection::None) {
+                            self.selection = Selection::None;
+                            requires_redraw = true;
+                        }
                     }
                     HitTestResult::Component(component) => {
                         self.selection = Selection::Component(component);
+                        requires_redraw = true;
                     }
                     HitTestResult::WireSegment(wire_segment) => {
                         self.selection = Selection::WireSegment(wire_segment);
+                        requires_redraw = true;
                     }
                 }
             }
@@ -451,6 +479,8 @@ impl Circuit {
                         center: bb.center(),
                     };
                 }
+
+                requires_redraw = true;
             }
 
             self.drag_state = DragState::None;
@@ -472,24 +502,33 @@ impl Circuit {
         //               |
 
         self.primary_button_down = false;
+
+        requires_redraw
     }
 
-    pub fn secondary_button_pressed(&mut self, _pos: Vec2f) {
+    pub fn secondary_button_pressed(&mut self, _pos: Vec2f) -> bool {
         self.secondary_button_down = true;
+        false
     }
 
-    pub fn secondary_button_released(&mut self, pos: Vec2f) {
+    pub fn secondary_button_released(&mut self, pos: Vec2f) -> bool {
+        let mut requires_redraw = false;
+
         if self.secondary_button_down {
             let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
             let hit = self.hit_test(logical_pos);
 
             match hit {
                 HitTestResult::None => {
-                    self.selection = Selection::None;
+                    if !matches!(self.selection, Selection::None) {
+                        self.selection = Selection::None;
+                        requires_redraw = true;
+                    }
                 }
                 HitTestResult::Component(component) => {
                     if !self.selection.contains_component(component) {
                         self.selection = Selection::Component(component);
+                        requires_redraw = true;
                     }
 
                     // TODO: show context menu
@@ -497,6 +536,7 @@ impl Circuit {
                 HitTestResult::WireSegment(wire_segment) => {
                     if !self.selection.contains_wire_segment(wire_segment) {
                         self.selection = Selection::WireSegment(wire_segment);
+                        requires_redraw = true;
                     }
 
                     // TODO: show context menu
@@ -507,6 +547,8 @@ impl Circuit {
         }
 
         self.secondary_button_down = false;
+
+        requires_redraw
     }
 
     pub fn move_selection(&mut self, delta: Vec2i) {
@@ -564,10 +606,10 @@ impl Circuit {
         }
     }
 
-    pub fn mouse_moved(&mut self, delta: Vec2f, drag_mode: DragMode) {
+    pub fn mouse_moved(&mut self, delta: Vec2f, drag_mode: DragMode) -> bool {
         if self.primary_button_down && !self.secondary_button_down {
             match &mut self.drag_state {
-                DragState::None => {}
+                DragState::None => false,
                 DragState::Deadzone {
                     drag_start,
                     drag_delta,
@@ -634,10 +676,15 @@ impl Circuit {
                                 }
                             }
                         };
+
+                        true
+                    } else {
+                        false
                     }
                 }
                 DragState::DrawingBoxSelection { drag_delta, .. } => {
                     *drag_delta += delta;
+                    true
                 }
                 DragState::DrawingWireSegment {
                     wire_segment,
@@ -656,6 +703,8 @@ impl Circuit {
                         wire_segment.endpoint_b = new_b;
                         wire_segment.update_midpoints();
                     }
+
+                    true
                 }
                 DragState::Dragging { fract_drag_delta } => {
                     assert!(
@@ -668,11 +717,16 @@ impl Circuit {
                     *fract_drag_delta -= whole_drag_delta;
 
                     let whole_drag_delta = whole_drag_delta.to_vec2i();
-                    if whole_drag_delta != Vec2i::default() {
+                    if whole_drag_delta != Vec2i::ZERO {
                         self.move_selection(whole_drag_delta);
+                        true
+                    } else {
+                        false
                     }
                 }
             }
+        } else {
+            false
         }
     }
 
@@ -854,12 +908,12 @@ impl Circuit {
         ui: &mut egui::Ui,
         locale_manager: &LocaleManager,
         lang: &LangId,
-    ) {
+    ) -> bool {
         match &self.selection {
-            Selection::None => {}
+            Selection::None => false,
             &Selection::Component(selected_component) => {
                 ui.heading(locale_manager.get(lang, "properties-header"));
-                self.components[selected_component].update_properties(ui, locale_manager, lang);
+                self.components[selected_component].update_properties(ui, locale_manager, lang)
             }
             &Selection::WireSegment(selected_segment) => {
                 ui.heading(locale_manager.get(lang, "properties-header"));
@@ -922,8 +976,10 @@ impl Circuit {
                 if needs_midpoint_update {
                     segment.update_midpoints();
                 }
+
+                needs_midpoint_update
             }
-            Selection::Multi { .. } => {}
+            Selection::Multi { .. } => false,
         }
     }
 

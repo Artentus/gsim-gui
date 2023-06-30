@@ -215,9 +215,9 @@ impl Viewport {
         }
     }
 
-    pub fn resize(&mut self, render_state: &RenderState, width: u32, height: u32) {
+    pub fn resize(&mut self, render_state: &RenderState, width: u32, height: u32) -> bool {
         if (self.texture.width() == width) && (self.texture.height() == height) {
-            return;
+            return false;
         }
 
         let (texture, texture_view, ms_texture, ms_texture_view) =
@@ -237,6 +237,8 @@ impl Viewport {
         self.texture_view = texture_view;
         self.ms_texture = ms_texture;
         self.ms_texture_view = ms_texture_view;
+
+        true
     }
 
     #[inline]
