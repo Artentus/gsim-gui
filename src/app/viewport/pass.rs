@@ -10,6 +10,9 @@ pub(super) use wire::*;
 mod anchor;
 pub(super) use anchor::*;
 
+mod text;
+pub(super) use text::*;
+
 mod selection_box;
 pub(super) use selection_box::*;
 
@@ -162,6 +165,7 @@ fn create_pipeline(
     shader: &ShaderModule,
     bind_group_layout: &BindGroupLayout,
     vs_input_layout: &[VertexBufferLayout<'_>],
+    blend: Option<BlendState>,
 ) -> (PipelineLayout, RenderPipeline) {
     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some(&format!("Viewport {name} pipeline layout")),
@@ -195,7 +199,11 @@ fn create_pipeline(
         fragment: Some(FragmentState {
             module: shader,
             entry_point: "fs_main",
-            targets: &[Some(TextureFormat::Rgba8Unorm.into())],
+            targets: &[Some(ColorTargetState {
+                format: TextureFormat::Rgba8Unorm,
+                blend,
+                write_mask: ColorWrites::all(),
+            })],
         }),
         multiview: None,
     });

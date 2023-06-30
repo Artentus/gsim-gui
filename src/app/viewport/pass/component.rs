@@ -90,6 +90,7 @@ impl ComponentPass {
             &shader,
             &bind_group_layout,
             &[Vertex::BUFFER_LAYOUT, Instance::BUFFER_LAYOUT],
+            None,
         );
 
         ComponentPass {

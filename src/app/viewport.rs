@@ -7,9 +7,17 @@ use super::circuit::*;
 use crate::app::math::*;
 use eframe::egui_wgpu::RenderState;
 use egui::TextureId;
+use std::io::{BufRead, Seek};
 use wgpu::*;
 
 trait RenderStateEx {
+    fn create_texture<R: BufRead + Seek>(
+        &self,
+        reader: R,
+        label: Option<&str>,
+        srgb: bool,
+    ) -> Texture;
+
     fn render_pass<'env, F>(
         &self,
         view: &TextureView,
@@ -33,6 +41,41 @@ trait RenderStateEx {
 }
 
 impl RenderStateEx for RenderState {
+    fn create_texture<R: BufRead + Seek>(
+        &self,
+        reader: R,
+        label: Option<&str>,
+        srgb: bool,
+    ) -> Texture {
+        use image::ImageFormat;
+        use wgpu::util::DeviceExt;
+
+        let img = image::load(reader, ImageFormat::Png).unwrap();
+        let img = img.to_rgba8();
+
+        let desc = TextureDescriptor {
+            label,
+            size: Extent3d {
+                width: img.width(),
+                height: img.height(),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: if srgb {
+                TextureFormat::Rgba8UnormSrgb
+            } else {
+                TextureFormat::Rgba8Unorm
+            },
+            usage: TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+
+        self.device
+            .create_texture_with_data(&self.queue, &desc, img.as_raw())
+    }
+
     fn render_pass<'env, F>(
         &self,
         view: &TextureView,
@@ -136,6 +179,7 @@ pub struct Viewport {
     wires: WirePass,
     anchors: AnchorPass,
     selection_box: SelectionBoxPass,
+    text: TextPass,
 }
 
 impl Viewport {
@@ -154,6 +198,7 @@ impl Viewport {
         let wires = WirePass::create(render_state);
         let anchors = AnchorPass::create(render_state);
         let selection_box = SelectionBoxPass::create(render_state);
+        let text = TextPass::create(render_state);
 
         Self {
             texture_id,
@@ -166,6 +211,7 @@ impl Viewport {
             wires,
             anchors,
             selection_box,
+            text,
         }
     }
 
@@ -248,6 +294,16 @@ impl Viewport {
                 resolution,
                 offset,
                 zoom,
+            );
+
+            self.text.draw(
+                render_state,
+                &self.ms_texture_view,
+                circuit,
+                resolution,
+                offset,
+                zoom,
+                colors,
             );
 
             if let Some((box_a, box_b)) = circuit.selection_box() {

@@ -107,6 +107,7 @@ impl WirePass {
             &shader,
             &bind_group_layout,
             &[Vertex::BUFFER_LAYOUT],
+            None,
         );
 
         Self {

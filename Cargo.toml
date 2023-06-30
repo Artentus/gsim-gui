@@ -18,7 +18,7 @@ egui = "0.22.0"
 egui_extras = { version = "0.22.0", features = ["image", "svg"] }
 image = { version = "0.24.6", default-features = false, features = ["png"] }
 eframe = { version = "0.22.0", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
-serde = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 unic-langid = { version = "0.9", features = ["serde", "macros"] }
 fluent-syntax = "0.11"

@@ -93,6 +93,17 @@ impl ComponentKind {
             }
         }
     }
+
+    pub fn name(&self) -> std::borrow::Cow<'static, str> {
+        match self {
+            ComponentKind::AndGate { .. } => "AND".into(),
+            ComponentKind::OrGate { .. } => "OR".into(),
+            ComponentKind::XorGate { .. } => "XOR".into(),
+            ComponentKind::NandGate { .. } => "NAND".into(),
+            ComponentKind::NorGate { .. } => "NOR".into(),
+            ComponentKind::XnorGate { .. } => "XNOR".into(),
+        }
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
