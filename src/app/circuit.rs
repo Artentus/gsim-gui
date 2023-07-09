@@ -57,7 +57,7 @@ impl WireSegment {
                 (min.min(v), max.max(v))
             });
 
-        let bb = BoundingBox {
+        let bb = Rectangle {
             top: (max.y as f32) + LOGICAL_PIXEL_SIZE,
             bottom: (min.y as f32) - LOGICAL_PIXEL_SIZE,
             left: (min.x as f32) - LOGICAL_PIXEL_SIZE,
@@ -440,7 +440,7 @@ impl Circuit {
                 drag_delta,
             } = &self.drag_state
             {
-                let selection_box = BoundingBox {
+                let selection_box = Rectangle {
                     top: drag_start.y.max(drag_start.y + drag_delta.y),
                     bottom: drag_start.y.min(drag_start.y + drag_delta.y),
                     left: drag_start.x.min(drag_start.x + drag_delta.x),
@@ -734,7 +734,7 @@ impl Circuit {
         &self,
         components: &HashSet<usize>,
         wire_segments: &HashSet<usize>,
-    ) -> BoundingBox {
+    ) -> Rectangle {
         let mut min = Vec2i::new(i32::MAX, i32::MAX);
         let mut max = Vec2i::new(i32::MIN, i32::MIN);
 
@@ -763,7 +763,7 @@ impl Circuit {
             }
         }
 
-        BoundingBox {
+        Rectangle {
             top: max.y as f32,
             bottom: min.y as f32,
             left: min.x as f32,

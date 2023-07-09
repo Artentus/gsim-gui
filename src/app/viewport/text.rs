@@ -1,9 +1,9 @@
 mod atlas;
 use atlas::*;
 
-use super::super::buffer::*;
-use super::super::{RenderStateEx, ViewportColors, BASE_ZOOM};
-use super::*;
+use super::buffer::*;
+use super::pass::*;
+use super::{ViewportColors, BASE_ZOOM};
 use crate::app::circuit::Circuit;
 use crate::app::math::*;
 use bytemuck::{Pod, Zeroable};
@@ -69,6 +69,7 @@ pub struct TextPass {
     index_buffer: StaticBuffer<u16>,
     _pipeline_layout: PipelineLayout,
     pipeline: RenderPipeline,
+    vertices: Vec<Vertex>,
 }
 
 impl TextPass {
@@ -186,16 +187,13 @@ impl TextPass {
             index_buffer,
             _pipeline_layout: pipeline_layout,
             pipeline,
+            vertices: Vec::with_capacity(MAX_VERTEX_COUNT),
         }
     }
 
-    fn draw_batch(
-        &mut self,
-        render_state: &RenderState,
-        texture_view: &TextureView,
-        vertices: &[Vertex],
-    ) {
-        self.vertex_buffer.write(&render_state.queue, vertices);
+    fn draw_batch(&mut self, render_state: &RenderState, texture_view: &TextureView) {
+        self.vertex_buffer
+            .write(&render_state.queue, &self.vertices);
 
         render_state.render_pass(texture_view, None, None, |pass, _| {
             pass.set_pipeline(&self.pipeline);
@@ -203,17 +201,17 @@ impl TextPass {
             pass.set_vertex_buffer(0, self.vertex_buffer.slice());
             pass.set_index_buffer(self.index_buffer.slice(), IndexFormat::Uint16);
 
-            let index_count = ((vertices.len() / 4) * 6) as u32;
+            let index_count = ((self.vertices.len() / 4) * 6) as u32;
             pass.draw_indexed(0..index_count, 0, 0..1);
         });
+
+        self.vertices.clear();
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn draw_text(
         &mut self,
         render_state: &RenderState,
         texture_view: &TextureView,
-        vertices: &mut Vec<Vertex>,
         text: &str,
         selected: bool,
         position: Vec2f,
@@ -232,22 +230,22 @@ impl TextPass {
                     let left = rel_x + sprite.bounds.left + kerning;
                     let right = rel_x + sprite.bounds.right + kerning;
 
-                    vertices.push(Vertex {
+                    self.vertices.push(Vertex {
                         position: Vec2f::new(left, top) * font_size + position,
                         uv: Vec2f::new(sprite.uv_bounds.left, sprite.uv_bounds.top),
                         selected: selected as u32,
                     });
-                    vertices.push(Vertex {
+                    self.vertices.push(Vertex {
                         position: Vec2f::new(right, top) * font_size + position,
                         uv: Vec2f::new(sprite.uv_bounds.right, sprite.uv_bounds.top),
                         selected: selected as u32,
                     });
-                    vertices.push(Vertex {
+                    self.vertices.push(Vertex {
                         position: Vec2f::new(right, bottom) * font_size + position,
                         uv: Vec2f::new(sprite.uv_bounds.right, sprite.uv_bounds.bottom),
                         selected: selected as u32,
                     });
-                    vertices.push(Vertex {
+                    self.vertices.push(Vertex {
                         position: Vec2f::new(left, bottom) * font_size + position,
                         uv: Vec2f::new(sprite.uv_bounds.left, sprite.uv_bounds.bottom),
                         selected: selected as u32,
@@ -257,9 +255,8 @@ impl TextPass {
                 rel_x += glyph.x_advance + kerning;
                 prev = Some(c);
 
-                if vertices.len() >= MAX_VERTEX_COUNT {
-                    self.draw_batch(render_state, texture_view, vertices);
-                    vertices.clear();
+                if self.vertices.len() >= MAX_VERTEX_COUNT {
+                    self.draw_batch(render_state, texture_view);
                 }
             }
         }
@@ -269,7 +266,7 @@ impl TextPass {
     pub fn draw(
         &mut self,
         render_state: &RenderState,
-        texture_view: &TextureView,
+        render_target: &TextureView,
         circuit: &Circuit,
         resolution: Vec2f,
         offset: Vec2f,
@@ -282,8 +279,8 @@ impl TextPass {
         self.global_buffer.write(
             &render_state.queue,
             &[Globals {
-                color: colors.component_color,
-                selected_color: colors.selected_component_color,
+                color: convert_color(colors.component_color),
+                selected_color: convert_color(colors.selected_component_color),
                 resolution,
                 offset,
                 zoom: zoom * BASE_ZOOM,
@@ -294,26 +291,28 @@ impl TextPass {
         // Font sizes are in grid units
         const NAME_FONT_SIZE: f32 = 1.0;
 
-        let mut vertices = Vec::with_capacity(MAX_VERTEX_COUNT);
         for (i, component) in circuit.components().iter().enumerate() {
             let name = component.kind.name();
-            let selected = circuit.selection().contains_component(i);
-            let name_width = self.atlas.measure_text(&name);
-            let name_offset = Vec2f::new(name_width, self.atlas.line_height) * NAME_FONT_SIZE * 0.5;
 
-            self.draw_text(
-                render_state,
-                texture_view,
-                &mut vertices,
-                &name,
-                selected,
-                component.position.to_vec2f() - name_offset,
-                NAME_FONT_SIZE,
-            );
+            if !name.is_empty() {
+                let selected = circuit.selection().contains_component(i);
+                let name_width = self.atlas.measure_text(&name);
+                let name_offset =
+                    Vec2f::new(name_width, self.atlas.line_height) * NAME_FONT_SIZE * 0.5;
+
+                self.draw_text(
+                    render_state,
+                    render_target,
+                    &name,
+                    selected,
+                    component.position.to_vec2f() - name_offset,
+                    NAME_FONT_SIZE,
+                );
+            }
         }
 
-        if !vertices.is_empty() {
-            self.draw_batch(render_state, texture_view, &vertices);
+        if !self.vertices.is_empty() {
+            self.draw_batch(render_state, render_target);
         }
     }
 }

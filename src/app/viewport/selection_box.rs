@@ -1,6 +1,6 @@
-use super::super::buffer::*;
-use super::super::{RenderStateEx, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
-use super::*;
+use super::buffer::*;
+use super::pass::*;
+use super::{Color, BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::math::*;
 use bytemuck::{Pod, Zeroable};
 use eframe::egui_wgpu::RenderState;
@@ -125,18 +125,18 @@ impl SelectionBoxPass {
     pub fn draw(
         &mut self,
         render_state: &RenderState,
-        texture_view: &TextureView,
+        render_target: &TextureView,
         resolution: Vec2f,
         offset: Vec2f,
         zoom: f32,
         box_a: Vec2f,
         box_b: Vec2f,
-        box_color: [f32; 4],
+        box_color: Color,
     ) {
         self.global_buffer.write(
             &render_state.queue,
             &[Globals {
-                color: box_color,
+                color: convert_color(box_color),
                 resolution,
                 offset,
                 zoom: zoom * BASE_ZOOM,
@@ -197,7 +197,7 @@ impl SelectionBoxPass {
 
         self.vertex_buffer.write(&render_state.queue, &vertices);
 
-        render_state.render_pass(texture_view, None, None, |pass, _| {
+        render_state.render_pass(render_target, None, None, |pass, _| {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buffer.slice());

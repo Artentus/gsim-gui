@@ -1,22 +1,6 @@
-mod grid;
-pub(super) use grid::*;
-
-mod component;
-pub(super) use component::*;
-
-mod wire;
-pub(super) use wire::*;
-
-mod anchor;
-pub(super) use anchor::*;
-
-mod text;
-pub(super) use text::*;
-
-mod selection_box;
-pub(super) use selection_box::*;
-
 use crate::app::math::{Vec2f, Vec2i};
+use eframe::egui_wgpu::RenderState;
+use std::io::{BufRead, Seek};
 use wgpu::*;
 
 macro_rules! shader {
@@ -37,9 +21,9 @@ macro_rules! shader {
     }};
 }
 
-use shader;
+pub(super) use shader;
 
-trait VsInputFieldType {
+pub(super) trait VsInputFieldType {
     const FORMAT: VertexFormat;
 }
 
@@ -64,12 +48,12 @@ impl_vertex_field_type!(
     Vec2f: Float32x2,
 );
 
-trait VsInput: Sized {
+pub(super) trait VsInput: Sized {
     const ATTRIBUTES: &'static [VertexAttribute];
     const BUFFER_LAYOUT: VertexBufferLayout<'static>;
 }
 
-const fn attrs<const N: usize>(
+pub(super) const fn attrs<const N: usize>(
     formats: [VertexFormat; N],
     base_location: usize,
 ) -> [VertexAttribute; N] {
@@ -157,9 +141,9 @@ macro_rules! vs_input {
     };
 }
 
-use vs_input;
+pub(super) use vs_input;
 
-fn create_pipeline(
+pub(super) fn create_pipeline(
     device: &Device,
     name: &str,
     shader: &ShaderModule,
@@ -191,11 +175,7 @@ fn create_pipeline(
             conservative: false,
         },
         depth_stencil: None,
-        multisample: MultisampleState {
-            count: 4,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
+        multisample: MultisampleState::default(),
         fragment: Some(FragmentState {
             module: shader,
             entry_point: "fs_main",
@@ -209,4 +189,122 @@ fn create_pipeline(
     });
 
     (pipeline_layout, pipeline)
+}
+
+pub(super) trait RenderStateEx {
+    fn create_texture<R: BufRead + Seek>(
+        &self,
+        reader: R,
+        label: Option<&str>,
+        srgb: bool,
+    ) -> Texture;
+
+    fn render_pass<'env, F>(
+        &self,
+        view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        clear_color: Option<Color>,
+        f: F,
+    ) where
+        // To restrict the lifetime of the closure in a way the compiler understands,
+        // this weird double reference is necessary.
+        for<'pass> F: FnOnce(&mut RenderPass<'pass>, &'pass &'env ());
+
+    #[inline]
+    fn clear_pass(&self, view: &TextureView, clear_color: Color) {
+        self.render_pass(view, None, Some(clear_color), |_, _| {});
+    }
+
+    #[inline]
+    fn resolve_pass(&self, view: &TextureView, resolve_target: &TextureView) {
+        self.render_pass(view, Some(resolve_target), None, |_, _| {});
+    }
+}
+
+impl RenderStateEx for RenderState {
+    fn create_texture<R: BufRead + Seek>(
+        &self,
+        reader: R,
+        label: Option<&str>,
+        srgb: bool,
+    ) -> Texture {
+        use image::ImageFormat;
+        use wgpu::util::DeviceExt;
+
+        let img = image::load(reader, ImageFormat::Png).unwrap();
+        let img = img.to_rgba8();
+
+        let desc = TextureDescriptor {
+            label,
+            size: Extent3d {
+                width: img.width(),
+                height: img.height(),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: if srgb {
+                TextureFormat::Rgba8UnormSrgb
+            } else {
+                TextureFormat::Rgba8Unorm
+            },
+            usage: TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+
+        self.device
+            .create_texture_with_data(&self.queue, &desc, img.as_raw())
+    }
+
+    fn render_pass<'env, F>(
+        &self,
+        view: &TextureView,
+        resolve_target: Option<&TextureView>,
+        clear_color: Option<Color>,
+        f: F,
+    ) where
+        for<'pass> F: FnOnce(&mut RenderPass<'pass>, &'pass &'env ()),
+    {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor::default());
+
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view,
+                    resolve_target,
+                    ops: Operations {
+                        load: if let Some(clear_color) = clear_color {
+                            LoadOp::Clear(clear_color)
+                        } else {
+                            LoadOp::Load
+                        },
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            f(&mut pass, &&());
+        }
+
+        self.queue.submit([encoder.finish()]);
+    }
+}
+
+pub(super) fn convert_color(c: super::Color) -> [f32; 4] {
+    #[inline]
+    fn unorm_to_float(u: u8) -> f32 {
+        (u as f32) / (u8::MAX as f32)
+    }
+
+    [
+        unorm_to_float(c.r),
+        unorm_to_float(c.g),
+        unorm_to_float(c.b),
+        unorm_to_float(c.a),
+    ]
 }

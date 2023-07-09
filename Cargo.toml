@@ -26,8 +26,8 @@ fluent = "0.16"
 tracing = "0.1"
 tracing-unwrap = "0.10"
 wgpu = "0.16.1"
+vello = { git = "https://github.com/linebender/vello.git" }
 bytemuck = { version = "1.13", features = ["derive"] }
-lyon = "1.0"
 smallvec = { version = "1.10", features = ["serde", "union", "const_generics"] }
 ahash = "0.8"
 rfd = "0.11.4"

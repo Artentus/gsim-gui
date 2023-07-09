@@ -247,6 +247,11 @@ macro_rules! def_vec2 {
             }
 
             #[inline]
+            pub const fn to_array(self) -> [$e; 2] {
+                [self.x, self.y]
+            }
+
+            #[inline]
             pub fn dot(self, rhs: Self) -> $e {
                 let prod = self * rhs;
                 prod.x + prod.y
@@ -359,25 +364,16 @@ impl From<egui::Vec2> for Vec2f {
     }
 }
 
-impl From<lyon::math::Point> for Vec2f {
-    #[inline]
-    fn from(value: lyon::math::Point) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
-pub struct BoundingBox {
+pub struct Rectangle {
     pub top: f32,
     pub bottom: f32,
     pub left: f32,
     pub right: f32,
 }
 
-impl BoundingBox {
+#[allow(dead_code)]
+impl Rectangle {
     pub fn contains(&self, p: Vec2f) -> bool {
         (p.x >= self.left) && (p.x <= self.right) && (p.y >= self.bottom) && (p.y <= self.top)
     }
@@ -386,6 +382,16 @@ impl BoundingBox {
         let min = Vec2f::new(self.left, self.bottom);
         let max = Vec2f::new(self.right, self.top);
         (min + max) * 0.5
+    }
+
+    #[inline]
+    pub fn width(&self) -> f32 {
+        self.right - self.left
+    }
+
+    #[inline]
+    pub fn height(&self) -> f32 {
+        self.top - self.bottom
     }
 }
 

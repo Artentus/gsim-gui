@@ -577,14 +577,25 @@ impl eframe::App for App {
                 let component_color: Rgba = ui.visuals().text_color().into();
                 let selected_component_color: Rgba = ui.visuals().strong_text_color().into();
 
+                macro_rules! viewport_color {
+                    ($color:ident) => {
+                        viewport::Color::rgba(
+                            $color.r() as f64,
+                            $color.g() as f64,
+                            $color.b() as f64,
+                            $color.a() as f64,
+                        )
+                    };
+                }
+
                 viewport.draw(
                     render_state,
                     selected_circuit,
                     &ViewportColors {
-                        background_color: background_color.to_array(),
-                        grid_color: grid_color.to_array(),
-                        component_color: component_color.to_array(),
-                        selected_component_color: selected_component_color.to_array(),
+                        background_color: viewport_color!(background_color),
+                        grid_color: viewport_color!(grid_color),
+                        component_color: viewport_color!(component_color),
+                        selected_component_color: viewport_color!(selected_component_color),
                     },
                 );
 

@@ -57,14 +57,14 @@ impl ComponentKind {
         }
     }
 
-    fn bounding_box(&self) -> BoundingBox {
+    fn bounding_box(&self) -> Rectangle {
         match self {
             ComponentKind::AndGate { .. }
             | ComponentKind::OrGate { .. }
             | ComponentKind::XorGate { .. }
             | ComponentKind::NandGate { .. }
             | ComponentKind::NorGate { .. }
-            | ComponentKind::XnorGate { .. } => BoundingBox {
+            | ComponentKind::XnorGate { .. } => Rectangle {
                 top: 2.0,
                 bottom: -2.0,
                 left: -2.0,
@@ -153,6 +153,15 @@ impl Rotation {
         }
     }
 
+    pub fn radians(self) -> f64 {
+        match self {
+            Rotation::Deg0 => 0.0,
+            Rotation::Deg90 => std::f64::consts::FRAC_PI_2,
+            Rotation::Deg180 => std::f64::consts::PI,
+            Rotation::Deg270 => 3.0 * std::f64::consts::FRAC_PI_2,
+        }
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Rotation::Deg0 => "0°",
@@ -193,9 +202,9 @@ impl Component {
 
             anchor.position = match self.rotation {
                 Rotation::Deg0 => anchor.position,
-                Rotation::Deg90 => Vec2i::new(anchor.position.y, -anchor.position.x),
+                Rotation::Deg90 => Vec2i::new(-anchor.position.y, anchor.position.x),
                 Rotation::Deg180 => -anchor.position,
-                Rotation::Deg270 => Vec2i::new(-anchor.position.y, anchor.position.x),
+                Rotation::Deg270 => Vec2i::new(anchor.position.y, -anchor.position.x),
             };
 
             anchor.position += self.position;
@@ -203,7 +212,7 @@ impl Component {
         anchors
     }
 
-    pub fn bounding_box(&self) -> BoundingBox {
+    pub fn bounding_box(&self) -> Rectangle {
         let mut bb = self.kind.bounding_box();
 
         if self.mirrored {
@@ -214,23 +223,23 @@ impl Component {
 
         bb = match self.rotation {
             Rotation::Deg0 => bb,
-            Rotation::Deg90 => BoundingBox {
-                top: -bb.left,
-                bottom: -bb.right,
-                left: bb.bottom,
-                right: bb.top,
+            Rotation::Deg90 => Rectangle {
+                top: bb.right,
+                bottom: bb.left,
+                left: -bb.top,
+                right: -bb.bottom,
             },
-            Rotation::Deg180 => BoundingBox {
+            Rotation::Deg180 => Rectangle {
                 top: -bb.bottom,
                 bottom: -bb.top,
                 left: -bb.right,
                 right: -bb.left,
             },
-            Rotation::Deg270 => BoundingBox {
-                top: bb.right,
-                bottom: bb.left,
-                left: -bb.top,
-                right: -bb.bottom,
+            Rotation::Deg270 => Rectangle {
+                top: -bb.left,
+                bottom: -bb.right,
+                left: bb.bottom,
+                right: bb.top,
             },
         };
 
