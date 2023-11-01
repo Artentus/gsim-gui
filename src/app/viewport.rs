@@ -86,6 +86,7 @@ impl Viewport {
             &vello::RendererOptions {
                 surface_format: None,
                 timestamp_period: render_state.queue.get_timestamp_period(),
+                use_cpu: false,
             },
         )
         .unwrap();
@@ -248,8 +249,7 @@ fn draw_grid(
 }
 
 fn draw_wires(builder: &mut vello::SceneBuilder, circuit: &Circuit) {
-    // NOTE: vello currently does not actually support joins and caps other than "round"
-    let stroke = Stroke::new(2.0 * LOGICAL_PIXEL_SIZE)
+    let stroke = Stroke::new((2.0 * LOGICAL_PIXEL_SIZE) as f64)
         .with_join(Join::Miter)
         .with_caps(Cap::Round);
 
@@ -279,8 +279,7 @@ fn draw_components(
 ) {
     use crate::app::component::*;
 
-    // NOTE: vello currently does not actually support joins and caps other than "round"
-    let stroke = Stroke::new(2.0 * LOGICAL_PIXEL_SIZE)
+    let stroke = Stroke::new((2.0 * LOGICAL_PIXEL_SIZE) as f64)
         .with_join(Join::Miter)
         .with_caps(Cap::Butt);
 

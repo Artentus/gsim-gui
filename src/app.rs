@@ -33,7 +33,7 @@ fn show_themed_image_button(
     theme: Theme,
     ui: &mut Ui,
 ) -> Response {
-    ImageButton::new(image.texture_id(ctx, theme), image.size_vec2()).ui(ui)
+    ImageButton::new((image.texture_id(ctx, theme), image.size_vec2())).ui(ui)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -472,10 +472,10 @@ impl eframe::App for App {
                 self.viewport.as_mut().unwrap()
             };
 
-            let response = Image::new(
+            let response = Image::new((
                 viewport.texture_id(),
                 Vec2::new(viewport_width as f32, viewport_height as f32),
-            )
+            ))
             .sense(Sense::click_and_drag())
             .ui(ui);
 
