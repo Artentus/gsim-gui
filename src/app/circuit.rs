@@ -3,6 +3,7 @@ use super::locale::*;
 use super::viewport::{BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::math::*;
 use crate::HashSet;
+use gsim::Id;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
 use std::path::{Path, PathBuf};
@@ -40,7 +41,7 @@ pub struct WireSegment {
     pub midpoints: SmallVec<[Vec2i; 2]>,
     pub endpoint_b: Vec2i,
     #[serde(skip)]
-    pub sim_wires: SmallVec<[gsim::WireId; 4]>,
+    pub sim_wire: gsim::WireId,
 }
 
 impl WireSegment {
@@ -449,7 +450,7 @@ impl Circuit {
 
                 let mut selected_components = HashSet::new();
                 for (i, component) in self.components.iter().enumerate() {
-                    if selection_box.contains(component.position.to_vec2f()) {
+                    if selection_box.contains(component.position().to_vec2f()) {
                         selected_components.insert(i);
                     }
                 }
@@ -560,7 +561,7 @@ impl Circuit {
                     .get_mut(component)
                     .expect("invalid selection");
 
-                component.position += delta;
+                component.set_position(component.position() + delta);
             }
             Selection::WireSegment(wire_segment) => {
                 let wire_segment = self
@@ -585,7 +586,7 @@ impl Circuit {
                         .get_mut(component)
                         .expect("invalid selection");
 
-                    component.position += delta;
+                    component.set_position(component.position() + delta);
                 }
 
                 for &wire_segment in wire_segments {
@@ -639,7 +640,7 @@ impl Circuit {
                                         endpoint_a,
                                         midpoints: smallvec![],
                                         endpoint_b,
-                                        sim_wires: smallvec![],
+                                        sim_wire: gsim::WireId::INVALID,
                                     };
                                     segment.update_midpoints();
 
@@ -741,8 +742,8 @@ impl Circuit {
         for &component in components {
             let component = self.components.get(component).expect("invalid selection");
 
-            min = min.min(component.position);
-            max = max.max(component.position);
+            min = min.min(component.position());
+            max = max.max(component.position());
         }
 
         for &wire_segment in wire_segments {
@@ -811,8 +812,8 @@ impl Circuit {
                         .get_mut(component)
                         .expect("invalid selection");
 
-                    let pos = component.position.to_vec2f() - center;
-                    component.position = (Vec2f::new(pos.y, -pos.x) + center).floor().to_vec2i();
+                    let pos = component.position().to_vec2f() - center;
+                    component.set_position((Vec2f::new(pos.y, -pos.x) + center).floor().to_vec2i());
                     component.rotation = component.rotation.next();
                 }
 
@@ -877,8 +878,8 @@ impl Circuit {
                         .get_mut(component)
                         .expect("invalid selection");
 
-                    let pos = component.position.to_vec2f() - center;
-                    component.position = (Vec2f::new(-pos.x, pos.y) + center).floor().to_vec2i();
+                    let pos = component.position().to_vec2f() - center;
+                    component.set_position((Vec2f::new(-pos.x, pos.y) + center).floor().to_vec2i());
                     component.mirrored = !component.mirrored;
                     component.rotation = component.rotation.mirror();
                 }
@@ -1025,11 +1026,11 @@ impl Circuit {
         self.sim = None;
 
         for component in &mut self.components {
-            component.sim_components.clear();
+            component.sim_component = gsim::ComponentId::INVALID;
         }
 
         for wire_segment in &mut self.wire_segments {
-            wire_segment.sim_wires.clear();
+            wire_segment.sim_wire = gsim::WireId::INVALID;
         }
     }
 }

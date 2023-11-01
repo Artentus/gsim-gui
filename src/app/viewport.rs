@@ -286,7 +286,7 @@ fn draw_components(
     for (i, component) in circuit.components().iter().enumerate() {
         let transform = Affine::scale_non_uniform(if component.mirrored { -1.0 } else { 1.0 }, 1.0)
             .then_rotate(component.rotation.radians())
-            .then_translate((component.position.x as f64, component.position.y as f64).into());
+            .then_translate((component.position().x as f64, component.position().y as f64).into());
 
         let stroke_color = if circuit.selection().contains_component(i) {
             colors.selected_component_color

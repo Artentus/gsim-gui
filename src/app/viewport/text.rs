@@ -305,7 +305,7 @@ impl TextPass {
                     render_target,
                     &name,
                     selected,
-                    component.position.to_vec2f() - name_offset,
+                    component.position().to_vec2f() - name_offset,
                     NAME_FONT_SIZE,
                 );
             }

@@ -1,8 +1,13 @@
-use super::locale::*;
+use crate::app::locale::*;
 use crate::app::math::*;
+use crate::app::UiExt;
 use egui::*;
+use gsim::Id;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
+use std::num::NonZeroU8;
+
+use super::NumericTextValue;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -33,15 +38,51 @@ macro_rules! anchors {
 #[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Deserialize)]
 pub enum ComponentKind {
-    AndGate { width: u8 },
-    OrGate { width: u8 },
-    XorGate { width: u8 },
-    NandGate { width: u8 },
-    NorGate { width: u8 },
-    XnorGate { width: u8 },
+    AndGate { width: NumericTextValue<NonZeroU8> },
+    OrGate { width: NumericTextValue<NonZeroU8> },
+    XorGate { width: NumericTextValue<NonZeroU8> },
+    NandGate { width: NumericTextValue<NonZeroU8> },
+    NorGate { width: NumericTextValue<NonZeroU8> },
+    XnorGate { width: NumericTextValue<NonZeroU8> },
 }
 
 impl ComponentKind {
+    pub fn new_and_gate() -> Self {
+        Self::AndGate {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+        }
+    }
+
+    pub fn new_or_gate() -> Self {
+        Self::OrGate {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+        }
+    }
+
+    pub fn new_xor_gate() -> Self {
+        Self::XorGate {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+        }
+    }
+
+    pub fn new_nand_gate() -> Self {
+        Self::NandGate {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+        }
+    }
+
+    pub fn new_nor_gate() -> Self {
+        Self::NorGate {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+        }
+    }
+
+    pub fn new_xnor_gate() -> Self {
+        Self::XnorGate {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+        }
+    }
+
     fn anchors(&self) -> SmallVec<[Anchor; 3]> {
         match self {
             ComponentKind::AndGate { .. }
@@ -88,17 +129,7 @@ impl ComponentKind {
             | ComponentKind::XnorGate { width } => {
                 ui.horizontal(|ui| {
                     ui.label(locale_manager.get(lang, "bit-width-property-name"));
-
-                    let mut width_text = format!("{width}");
-                    ui.text_edit_singleline(&mut width_text);
-                    if let Ok(new_width) = width_text.parse::<u8>() {
-                        if new_width != *width {
-                            *width = new_width;
-                            return true;
-                        }
-                    }
-
-                    false
+                    ui.numeric_text_edit(width).lost_focus()
                 })
                 .inner
             }
@@ -175,22 +206,35 @@ impl Rotation {
 #[derive(Serialize, Deserialize)]
 pub struct Component {
     pub kind: ComponentKind,
-    pub position: Vec2i,
+    pub position_x: NumericTextValue<i32>,
+    pub position_y: NumericTextValue<i32>,
     pub rotation: Rotation,
     pub mirrored: bool,
     #[serde(skip)]
-    pub sim_components: SmallVec<[gsim::ComponentId; 4]>,
+    pub sim_component: gsim::ComponentId,
 }
 
 impl Component {
     pub fn new(kind: ComponentKind) -> Self {
         Self {
             kind,
-            position: Vec2i::default(),
+            position_x: NumericTextValue::new(0),
+            position_y: NumericTextValue::new(0),
             rotation: Rotation::default(),
             mirrored: false,
-            sim_components: smallvec![],
+            sim_component: gsim::ComponentId::INVALID,
         }
+    }
+
+    #[inline]
+    pub fn position(&self) -> Vec2i {
+        Vec2i::new(*self.position_x.get(), *self.position_y.get())
+    }
+
+    #[inline]
+    pub fn set_position(&mut self, new_position: Vec2i) {
+        self.position_x.set(new_position.x);
+        self.position_y.set(new_position.y);
     }
 
     pub fn anchors(&self) -> SmallVec<[Anchor; 3]> {
@@ -207,7 +251,8 @@ impl Component {
                 Rotation::Deg270 => Vec2i::new(anchor.position.y, -anchor.position.x),
             };
 
-            anchor.position += self.position;
+            anchor.position.x += *self.position_x.get();
+            anchor.position.y += *self.position_y.get();
         }
         anchors
     }
@@ -243,10 +288,10 @@ impl Component {
             },
         };
 
-        bb.top += self.position.y as f32;
-        bb.bottom += self.position.y as f32;
-        bb.left += self.position.x as f32;
-        bb.right += self.position.x as f32;
+        bb.top += self.position().y as f32;
+        bb.bottom += self.position().y as f32;
+        bb.left += self.position().x as f32;
+        bb.right += self.position().x as f32;
 
         bb
     }
@@ -261,28 +306,12 @@ impl Component {
 
         ui.horizontal(|ui| {
             ui.label("X:");
-
-            let mut x_text = format!("{}", self.position.x);
-            ui.text_edit_singleline(&mut x_text);
-            if let Ok(new_x) = x_text.parse() {
-                if new_x != self.position.x {
-                    self.position.x = new_x;
-                    requires_redraw = true;
-                }
-            }
+            requires_redraw |= ui.numeric_text_edit(&mut self.position_x).lost_focus();
         });
 
         ui.horizontal(|ui| {
             ui.label("Y:");
-
-            let mut y_text = format!("{}", self.position.y);
-            ui.text_edit_singleline(&mut y_text);
-            if let Ok(new_y) = y_text.parse() {
-                if new_y != self.position.y {
-                    self.position.y = new_y;
-                    requires_redraw = true;
-                }
-            }
+            requires_redraw |= ui.numeric_text_edit(&mut self.position_y).lost_focus();
         });
 
         ui.horizontal(|ui| {

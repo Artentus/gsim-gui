@@ -1,6 +1,8 @@
 use egui::*;
 use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
+use std::fmt::Display;
+use std::str::FromStr;
 
 mod math;
 use math::*;
@@ -26,14 +28,89 @@ use file_dialog::*;
 
 const DEFAULT_MAX_STEPS: u64 = 10_000;
 
-#[inline]
-fn show_themed_image_button(
-    image: &ThemedImage,
-    ctx: &Context,
-    theme: Theme,
-    ui: &mut Ui,
-) -> Response {
-    ImageButton::new((image.texture_id(ctx, theme), image.size_vec2())).ui(ui)
+pub struct NumericTextValue<T: FromStr + Display> {
+    buffer: String,
+    value: T,
+}
+
+impl<T: FromStr + Display> NumericTextValue<T> {
+    fn new(value: T) -> Self {
+        Self {
+            buffer: value.to_string(),
+            value,
+        }
+    }
+
+    #[inline]
+    fn get(&self) -> &T {
+        &self.value
+    }
+
+    fn set(&mut self, new_value: T) {
+        use std::fmt::Write;
+
+        self.buffer.clear();
+        write!(self.buffer, "{new_value}").unwrap();
+        self.value = new_value;
+    }
+}
+
+impl<T: FromStr + Display + Serialize> Serialize for NumericTextValue<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.value.serialize(serializer)
+    }
+}
+
+impl<'de, T: FromStr + Display + Deserialize<'de>> Deserialize<'de> for NumericTextValue<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        T::deserialize(deserializer).map(Self::new)
+    }
+}
+
+trait UiExt {
+    fn themed_image_button(&mut self, image: &ThemedImage, ctx: &Context, theme: Theme)
+        -> Response;
+
+    fn numeric_text_edit<T: FromStr + Display>(
+        &mut self,
+        value: &mut NumericTextValue<T>,
+    ) -> Response;
+}
+
+impl UiExt for Ui {
+    fn themed_image_button(
+        &mut self,
+        image: &ThemedImage,
+        ctx: &Context,
+        theme: Theme,
+    ) -> Response {
+        ImageButton::new((image.texture_id(ctx, theme), image.size_vec2())).ui(self)
+    }
+
+    fn numeric_text_edit<T: FromStr + Display>(
+        &mut self,
+        value: &mut NumericTextValue<T>,
+    ) -> Response {
+        use std::fmt::Write;
+
+        let response = self.text_edit_singleline(&mut value.buffer);
+        if response.lost_focus() {
+            if let Ok(new_value) = value.buffer.parse() {
+                value.value = new_value;
+            } else {
+                value.buffer.clear();
+                write!(value.buffer, "{}", value.value).unwrap();
+            }
+        }
+
+        response
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -285,7 +362,8 @@ impl eframe::App for App {
                             .get(&self.state.lang, "light-theme-name"),
                     };
 
-                    if show_themed_image_button(&self.theme_image, ctx, self.state.theme, ui)
+                    if ui
+                        .themed_image_button(&self.theme_image, ctx, self.state.theme)
                         .on_hover_text(target_theme_name)
                         .clicked()
                     {
@@ -314,7 +392,8 @@ impl eframe::App for App {
             ui.heading(self.locale_manager.get(&self.state.lang, "logic-header"));
 
             ui.horizontal(|ui| {
-                if show_themed_image_button(&self.and_gate_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.and_gate_image, ctx, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "and-gate-tool-tip"),
@@ -323,12 +402,13 @@ impl eframe::App for App {
                 {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
-                            .add_component(ComponentKind::AndGate { width: 1 });
+                            .add_component(ComponentKind::new_and_gate());
                         self.requires_redraw = true;
                     }
                 }
 
-                if show_themed_image_button(&self.nand_gate_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.nand_gate_image, ctx, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "nand-gate-tool-tip"),
@@ -337,14 +417,15 @@ impl eframe::App for App {
                 {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
-                            .add_component(ComponentKind::NandGate { width: 1 });
+                            .add_component(ComponentKind::new_nand_gate());
                         self.requires_redraw = true;
                     }
                 }
             });
 
             ui.horizontal(|ui| {
-                if show_themed_image_button(&self.or_gate_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.or_gate_image, ctx, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "or-gate-tool-tip"),
@@ -352,13 +433,13 @@ impl eframe::App for App {
                     .clicked()
                 {
                     if let Some(selected_circuit) = self.selected_circuit {
-                        self.circuits[selected_circuit]
-                            .add_component(ComponentKind::OrGate { width: 1 });
+                        self.circuits[selected_circuit].add_component(ComponentKind::new_or_gate());
                         self.requires_redraw = true;
                     }
                 }
 
-                if show_themed_image_button(&self.nor_gate_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.nor_gate_image, ctx, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "nor-gate-tool-tip"),
@@ -367,14 +448,15 @@ impl eframe::App for App {
                 {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
-                            .add_component(ComponentKind::NorGate { width: 1 });
+                            .add_component(ComponentKind::new_nor_gate());
                         self.requires_redraw = true;
                     }
                 }
             });
 
             ui.horizontal(|ui| {
-                if show_themed_image_button(&self.xor_gate_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.xor_gate_image, ctx, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "xor-gate-tool-tip"),
@@ -383,12 +465,13 @@ impl eframe::App for App {
                 {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
-                            .add_component(ComponentKind::XorGate { width: 1 });
+                            .add_component(ComponentKind::new_xor_gate());
                         self.requires_redraw = true;
                     }
                 }
 
-                if show_themed_image_button(&self.xnor_gate_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.xnor_gate_image, ctx, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "xnor-gate-tool-tip"),
@@ -397,19 +480,21 @@ impl eframe::App for App {
                 {
                     if let Some(selected_circuit) = self.selected_circuit {
                         self.circuits[selected_circuit]
-                            .add_component(ComponentKind::XnorGate { width: 1 });
+                            .add_component(ComponentKind::new_xnor_gate());
                         self.requires_redraw = true;
                     }
                 }
             });
 
             ui.horizontal(|ui| {
-                if show_themed_image_button(&self.buffer_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.buffer_image, ctx, self.state.theme)
                     .on_hover_text(self.locale_manager.get(&self.state.lang, "buffer-tool-tip"))
                     .clicked()
                 {}
 
-                if show_themed_image_button(&self.not_gate_image, ctx, self.state.theme, ui)
+                if ui
+                    .themed_image_button(&self.not_gate_image, ctx, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "not-gate-tool-tip"),
