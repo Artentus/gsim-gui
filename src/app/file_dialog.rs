@@ -52,7 +52,7 @@ mod web {
     use js_sys::{Array, ArrayBuffer, Uint8Array};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
-    use web_sys::{window, File, FileReader, HtmlInputElement, Url};
+    use web_sys::{window, File, FileReader, HtmlAnchorElement, HtmlInputElement, Url};
 
     pub struct FileDialog {
         tx: std::sync::mpsc::Sender<Vec<u8>>,
@@ -146,13 +146,11 @@ mod web {
         }
 
         pub fn save(&mut self, name: &str, data: &[u8]) {
-            // TODO:
-            //   This currently causes the browser to download a very weirdly named file.
-            //   Find a way to show an actual dialog so the user can choose the file name.
-
             if let Some(save_url) = self.save_url.take() {
                 let _ = Url::revoke_object_url(&save_url);
             }
+
+            let name = format!("{name}.json");
 
             let array = Uint8Array::from(data);
             let blob_parts = Array::new();
@@ -160,15 +158,23 @@ mod web {
 
             let file = File::new_with_blob_sequence_and_options(
                 &blob_parts.into(),
-                name,
+                &name,
                 web_sys::FilePropertyBag::new().type_("application/octet-stream"),
             )
             .unwrap();
 
             let url = Url::create_object_url_with_blob(&file).unwrap();
-            if let Some(window) = web_sys::window() {
-                let _ = window.location().set_href(&url);
-            }
+
+            let document = window().unwrap().document().unwrap();
+            let temp = document
+                .create_element("a")
+                .unwrap()
+                .unchecked_into::<HtmlAnchorElement>();
+            temp.set_href(&url);
+            temp.set_download(&name);
+            temp.click();
+            temp.remove();
+
             self.save_url = Some(url);
         }
     }
