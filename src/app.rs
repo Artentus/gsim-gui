@@ -74,8 +74,7 @@ impl<'de, T: FromStr + Display + Deserialize<'de>> Deserialize<'de> for NumericT
 }
 
 trait UiExt {
-    fn themed_image_button(&mut self, image: &ThemedImage, ctx: &Context, theme: Theme)
-        -> Response;
+    fn themed_image_button(&mut self, image: &ThemedImage, theme: Theme) -> Response;
 
     fn numeric_text_edit<T: FromStr + Display>(
         &mut self,
@@ -84,13 +83,8 @@ trait UiExt {
 }
 
 impl UiExt for Ui {
-    fn themed_image_button(
-        &mut self,
-        image: &ThemedImage,
-        ctx: &Context,
-        theme: Theme,
-    ) -> Response {
-        ImageButton::new((image.texture_id(ctx, theme), image.size_vec2())).ui(self)
+    fn themed_image_button(&mut self, image: &ThemedImage, theme: Theme) -> Response {
+        ImageButton::new(Image::new(image.source(theme)).fit_to_original_size(1.0)).ui(self)
     }
 
     fn numeric_text_edit<T: FromStr + Display>(
@@ -137,15 +131,15 @@ pub struct App {
     next_visuals: Option<Visuals>,
     file_dialog: OnceCell<FileDialog>,
 
-    theme_image: ThemedImage,
-    and_gate_image: ThemedImage,
-    nand_gate_image: ThemedImage,
-    or_gate_image: ThemedImage,
-    nor_gate_image: ThemedImage,
-    xor_gate_image: ThemedImage,
-    xnor_gate_image: ThemedImage,
-    not_gate_image: ThemedImage,
-    buffer_image: ThemedImage,
+    theme_image: &'static ThemedImage,
+    and_gate_image: &'static ThemedImage,
+    nand_gate_image: &'static ThemedImage,
+    or_gate_image: &'static ThemedImage,
+    nor_gate_image: &'static ThemedImage,
+    xor_gate_image: &'static ThemedImage,
+    xnor_gate_image: &'static ThemedImage,
+    not_gate_image: &'static ThemedImage,
+    buffer_image: &'static ThemedImage,
 
     viewport: Option<Viewport>,
 
@@ -166,6 +160,8 @@ impl App {
             Theme::Light => cc.egui_ctx.set_visuals(Visuals::light()),
             Theme::Dark => cc.egui_ctx.set_visuals(Visuals::dark()),
         }
+
+        egui_extras::install_image_loaders(&cc.egui_ctx);
 
         Self {
             state,
@@ -363,7 +359,7 @@ impl eframe::App for App {
                     };
 
                     if ui
-                        .themed_image_button(&self.theme_image, ctx, self.state.theme)
+                        .themed_image_button(&self.theme_image, self.state.theme)
                         .on_hover_text(target_theme_name)
                         .clicked()
                     {
@@ -393,7 +389,7 @@ impl eframe::App for App {
 
             ui.horizontal(|ui| {
                 if ui
-                    .themed_image_button(&self.and_gate_image, ctx, self.state.theme)
+                    .themed_image_button(&self.and_gate_image, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "and-gate-tool-tip"),
@@ -408,7 +404,7 @@ impl eframe::App for App {
                 }
 
                 if ui
-                    .themed_image_button(&self.nand_gate_image, ctx, self.state.theme)
+                    .themed_image_button(&self.nand_gate_image, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "nand-gate-tool-tip"),
@@ -425,7 +421,7 @@ impl eframe::App for App {
 
             ui.horizontal(|ui| {
                 if ui
-                    .themed_image_button(&self.or_gate_image, ctx, self.state.theme)
+                    .themed_image_button(&self.or_gate_image, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "or-gate-tool-tip"),
@@ -439,7 +435,7 @@ impl eframe::App for App {
                 }
 
                 if ui
-                    .themed_image_button(&self.nor_gate_image, ctx, self.state.theme)
+                    .themed_image_button(&self.nor_gate_image, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "nor-gate-tool-tip"),
@@ -456,7 +452,7 @@ impl eframe::App for App {
 
             ui.horizontal(|ui| {
                 if ui
-                    .themed_image_button(&self.xor_gate_image, ctx, self.state.theme)
+                    .themed_image_button(&self.xor_gate_image, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "xor-gate-tool-tip"),
@@ -471,7 +467,7 @@ impl eframe::App for App {
                 }
 
                 if ui
-                    .themed_image_button(&self.xnor_gate_image, ctx, self.state.theme)
+                    .themed_image_button(&self.xnor_gate_image, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "xnor-gate-tool-tip"),
@@ -488,13 +484,13 @@ impl eframe::App for App {
 
             ui.horizontal(|ui| {
                 if ui
-                    .themed_image_button(&self.buffer_image, ctx, self.state.theme)
+                    .themed_image_button(&self.buffer_image, self.state.theme)
                     .on_hover_text(self.locale_manager.get(&self.state.lang, "buffer-tool-tip"))
                     .clicked()
                 {}
 
                 if ui
-                    .themed_image_button(&self.not_gate_image, ctx, self.state.theme)
+                    .themed_image_button(&self.not_gate_image, self.state.theme)
                     .on_hover_text(
                         self.locale_manager
                             .get(&self.state.lang, "not-gate-tool-tip"),
