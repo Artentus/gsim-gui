@@ -197,6 +197,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         if let Some(visuals) = self.next_visuals.take() {
             ctx.set_visuals(visuals);
+            self.requires_redraw = true;
         }
 
         let Some(file_dialog) = self.file_dialog.get_mut() else {
