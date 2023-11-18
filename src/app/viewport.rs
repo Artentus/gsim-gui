@@ -83,10 +83,11 @@ impl Viewport {
 
         let renderer = vello::Renderer::new(
             &render_state.device,
-            &vello::RendererOptions {
+            vello::RendererOptions {
                 surface_format: None,
                 timestamp_period: render_state.queue.get_timestamp_period(),
                 use_cpu: false,
+                antialiasing_support: vello::AaSupport::area_only(),
             },
         )
         .unwrap();
@@ -178,6 +179,7 @@ impl Viewport {
                     base_color: colors.background_color,
                     width,
                     height,
+                    antialiasing_method: vello::AaConfig::Area,
                 },
             )
             .unwrap();
