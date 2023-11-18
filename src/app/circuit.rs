@@ -1026,7 +1026,7 @@ impl Circuit {
         self.sim = None;
 
         for component in &mut self.components {
-            component.sim_component = gsim::ComponentId::INVALID;
+            component.kind.reset_sim_ids();
         }
 
         for wire_segment in &mut self.wire_segments {

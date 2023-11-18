@@ -38,48 +38,78 @@ macro_rules! anchors {
 #[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Deserialize)]
 pub enum ComponentKind {
-    AndGate { width: NumericTextValue<NonZeroU8> },
-    OrGate { width: NumericTextValue<NonZeroU8> },
-    XorGate { width: NumericTextValue<NonZeroU8> },
-    NandGate { width: NumericTextValue<NonZeroU8> },
-    NorGate { width: NumericTextValue<NonZeroU8> },
-    XnorGate { width: NumericTextValue<NonZeroU8> },
+    AndGate {
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_component: gsim::ComponentId,
+    },
+    OrGate {
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_component: gsim::ComponentId,
+    },
+    XorGate {
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_component: gsim::ComponentId,
+    },
+    NandGate {
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_component: gsim::ComponentId,
+    },
+    NorGate {
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_component: gsim::ComponentId,
+    },
+    XnorGate {
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_component: gsim::ComponentId,
+    },
 }
 
 impl ComponentKind {
     pub fn new_and_gate() -> Self {
         Self::AndGate {
             width: NumericTextValue::new(NonZeroU8::MIN),
+            sim_component: gsim::ComponentId::INVALID,
         }
     }
 
     pub fn new_or_gate() -> Self {
         Self::OrGate {
             width: NumericTextValue::new(NonZeroU8::MIN),
+            sim_component: gsim::ComponentId::INVALID,
         }
     }
 
     pub fn new_xor_gate() -> Self {
         Self::XorGate {
             width: NumericTextValue::new(NonZeroU8::MIN),
+            sim_component: gsim::ComponentId::INVALID,
         }
     }
 
     pub fn new_nand_gate() -> Self {
         Self::NandGate {
             width: NumericTextValue::new(NonZeroU8::MIN),
+            sim_component: gsim::ComponentId::INVALID,
         }
     }
 
     pub fn new_nor_gate() -> Self {
         Self::NorGate {
             width: NumericTextValue::new(NonZeroU8::MIN),
+            sim_component: gsim::ComponentId::INVALID,
         }
     }
 
     pub fn new_xnor_gate() -> Self {
         Self::XnorGate {
             width: NumericTextValue::new(NonZeroU8::MIN),
+            sim_component: gsim::ComponentId::INVALID,
         }
     }
 
@@ -121,12 +151,12 @@ impl ComponentKind {
         lang: &LangId,
     ) -> bool {
         match self {
-            ComponentKind::AndGate { width }
-            | ComponentKind::OrGate { width }
-            | ComponentKind::XorGate { width }
-            | ComponentKind::NandGate { width }
-            | ComponentKind::NorGate { width }
-            | ComponentKind::XnorGate { width } => {
+            ComponentKind::AndGate { width, .. }
+            | ComponentKind::OrGate { width, .. }
+            | ComponentKind::XorGate { width, .. }
+            | ComponentKind::NandGate { width, .. }
+            | ComponentKind::NorGate { width, .. }
+            | ComponentKind::XnorGate { width, .. } => {
                 ui.horizontal(|ui| {
                     ui.label(locale_manager.get(lang, "bit-width-property-name"));
                     ui.numeric_text_edit(width).lost_focus()
@@ -144,6 +174,19 @@ impl ComponentKind {
             ComponentKind::NandGate { .. } => "NAND".into(),
             ComponentKind::NorGate { .. } => "NOR".into(),
             ComponentKind::XnorGate { .. } => "XNOR".into(),
+        }
+    }
+
+    pub fn reset_sim_ids(&mut self) {
+        match self {
+            ComponentKind::AndGate { sim_component, .. }
+            | ComponentKind::OrGate { sim_component, .. }
+            | ComponentKind::XorGate { sim_component, .. }
+            | ComponentKind::NandGate { sim_component, .. }
+            | ComponentKind::NorGate { sim_component, .. }
+            | ComponentKind::XnorGate { sim_component, .. } => {
+                *sim_component = gsim::ComponentId::INVALID
+            }
         }
     }
 }
@@ -210,8 +253,6 @@ pub struct Component {
     pub position_y: NumericTextValue<i32>,
     pub rotation: Rotation,
     pub mirrored: bool,
-    #[serde(skip)]
-    pub sim_component: gsim::ComponentId,
 }
 
 impl Component {
@@ -222,7 +263,6 @@ impl Component {
             position_y: NumericTextValue::new(0),
             rotation: Rotation::default(),
             mirrored: false,
-            sim_component: gsim::ComponentId::INVALID,
         }
     }
 
