@@ -11,6 +11,11 @@ language-menu-item = Sprache
 light-theme-name = Hell
 dark-theme-name = Dunkel
 
+ports-header = Anschlüsse
+input-tool-tip = Eingang
+clock-input-tool-tip = Takt-Eingang
+output-tool-tip = Ausgang
+
 logic-header = Logik
 and-gate-tool-tip = AND-Gatter
 nand-gate-tool-tip = NAND-Gatter
@@ -22,6 +27,7 @@ buffer-tool-tip = Puffer
 not-gate-tool-tip = NOT-Gatter
 
 properties-header = Eigenschaften
+name-property-name = Name:
 bit-width-property-name = Bit-Breite:
 rotation-property-name = Rotation:
 mirrored-property-name = Gespiegelt

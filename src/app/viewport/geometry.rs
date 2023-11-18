@@ -61,6 +61,24 @@ impl Geometry {
     }
 }
 
+fn build_input_geometry() -> Geometry {
+    let mut path = BezPath::new();
+    path.move_to((-1.0, -1.0));
+    path.line_to((-1.0, 1.0));
+    path.line_to((1.0, 1.0));
+    path.line_to((1.0, -1.0));
+    path.close_path();
+
+    Geometry::Same(path)
+}
+
+fn build_output_geometry() -> Geometry {
+    let mut path = BezPath::new();
+    path.circle((0.0, 0.0), 1.0);
+
+    Geometry::Same(path)
+}
+
 fn build_and_gate_geometry() -> Geometry {
     let mut path = BezPath::new();
     path.move_to((-2.0, -2.0));
@@ -161,6 +179,8 @@ fn build_xnor_gate_geometry() -> Geometry {
 }
 
 pub(super) struct GeometryStore {
+    pub(super) input_geometry: Geometry,
+    pub(super) output_geometry: Geometry,
     pub(super) and_gate_geometry: Geometry,
     pub(super) or_gate_geometry: Geometry,
     pub(super) xor_gate_geometry: Geometry,
@@ -172,6 +192,8 @@ pub(super) struct GeometryStore {
 impl GeometryStore {
     pub(super) fn new() -> Self {
         Self {
+            input_geometry: build_input_geometry(),
+            output_geometry: build_output_geometry(),
             and_gate_geometry: build_and_gate_geometry(),
             or_gate_geometry: build_or_gate_geometry(),
             xor_gate_geometry: build_xor_gate_geometry(),

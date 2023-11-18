@@ -3,7 +3,6 @@ use super::locale::*;
 use super::viewport::{BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::math::*;
 use crate::HashSet;
-use gsim::Id;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
 use std::path::{Path, PathBuf};
@@ -41,7 +40,7 @@ pub struct WireSegment {
     pub midpoints: SmallVec<[Vec2i; 2]>,
     pub endpoint_b: Vec2i,
     #[serde(skip)]
-    pub sim_wire: gsim::WireId,
+    pub sim_wires: SmallVec<[gsim::WireId; 4]>,
 }
 
 impl WireSegment {
@@ -640,7 +639,7 @@ impl Circuit {
                                         endpoint_a,
                                         midpoints: smallvec![],
                                         endpoint_b,
-                                        sim_wire: gsim::WireId::INVALID,
+                                        sim_wires: smallvec![],
                                     };
                                     segment.update_midpoints();
 
@@ -1030,7 +1029,7 @@ impl Circuit {
         }
 
         for wire_segment in &mut self.wire_segments {
-            wire_segment.sim_wire = gsim::WireId::INVALID;
+            wire_segment.sim_wires.clear();
         }
     }
 }

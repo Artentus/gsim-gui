@@ -379,10 +379,57 @@ impl eframe::App for App {
         });
 
         SidePanel::left("component_picker").show(ctx, |ui| {
+            ui.set_enabled(self.selected_circuit.is_some());
+
             ui.horizontal(|ui| {
                 // TODO: use icon buttons
                 ui.radio_value(&mut self.drag_mode, DragMode::BoxSelection, "Select");
                 ui.radio_value(&mut self.drag_mode, DragMode::DrawWire, "Draw Wires");
+            });
+
+            ui.heading(self.locale_manager.get(&self.state.lang, "ports-header"));
+
+            ui.horizontal(|ui| {
+                if ui
+                    .themed_image_button(&self.and_gate_image, self.state.theme)
+                    .on_hover_text(self.locale_manager.get(&self.state.lang, "input-tool-tip"))
+                    .clicked()
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit].add_component(ComponentKind::new_input());
+                        self.requires_redraw = true;
+                    }
+                }
+
+                if ui
+                    .themed_image_button(&self.nand_gate_image, self.state.theme)
+                    .on_hover_text(self.locale_manager.get(&self.state.lang, "output-tool-tip"))
+                    .clicked()
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit].add_component(ComponentKind::new_output());
+                        self.requires_redraw = true;
+                    }
+                }
+            });
+
+            ui.horizontal(|ui| {
+                if ui
+                    .themed_image_button(&self.and_gate_image, self.state.theme)
+                    .on_hover_text(
+                        self.locale_manager
+                            .get(&self.state.lang, "clock-input-tool-tip"),
+                    )
+                    .clicked()
+                {
+                    if let Some(selected_circuit) = self.selected_circuit {
+                        self.circuits[selected_circuit]
+                            .add_component(ComponentKind::new_clock_input());
+                        self.requires_redraw = true;
+                    }
+                }
+
+                // TODO: bidirectional port
             });
 
             ui.heading(self.locale_manager.get(&self.state.lang, "logic-header"));

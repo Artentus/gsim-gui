@@ -292,7 +292,7 @@ impl TextPass {
         const NAME_FONT_SIZE: f32 = 1.0;
 
         for (i, component) in circuit.components().iter().enumerate() {
-            let name = component.kind.name();
+            let name = component.kind.label();
 
             if !name.is_empty() {
                 let selected = circuit.selection().contains_component(i);

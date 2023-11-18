@@ -11,6 +11,11 @@ language-menu-item = Language
 light-theme-name = Light
 dark-theme-name = Dark
 
+ports-header = Ports
+input-tool-tip = Input port
+clock-input-tool-tip = Clock input port
+output-tool-tip = Output port
+
 logic-header = Logic
 and-gate-tool-tip = AND-Gate
 nand-gate-tool-tip = NAND-Gate
@@ -22,6 +27,7 @@ buffer-tool-tip = Buffer
 not-gate-tool-tip = NOT-Gate
 
 properties-header = Properties
+name-property-name = Name:
 bit-width-property-name = Bit-width:
 rotation-property-name = Rotation:
 mirrored-property-name = Mirrored

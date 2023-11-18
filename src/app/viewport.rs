@@ -297,6 +297,11 @@ fn draw_components(
         };
 
         let geometry = match component.kind {
+            ComponentKind::Input { .. } | ComponentKind::ClockInput { .. } => {
+                &geometry.input_geometry
+            }
+            ComponentKind::Output { .. } => &geometry.output_geometry,
+            ComponentKind::Splitter { .. } => todo!(),
             ComponentKind::AndGate { .. } => &geometry.and_gate_geometry,
             ComponentKind::OrGate { .. } => &geometry.or_gate_geometry,
             ComponentKind::XorGate { .. } => &geometry.xor_gate_geometry,

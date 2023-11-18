@@ -38,6 +38,27 @@ macro_rules! anchors {
 #[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Deserialize)]
 pub enum ComponentKind {
+    Input {
+        name: String,
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_wires: SmallVec<[gsim::WireId; 4]>,
+    },
+    ClockInput {
+        name: String,
+        #[serde(skip)]
+        sim_wire: gsim::WireId,
+    },
+    Output {
+        name: String,
+        width: NumericTextValue<NonZeroU8>,
+        #[serde(skip)]
+        sim_wires: SmallVec<[gsim::WireId; 4]>,
+    },
+    Splitter {
+        width: NumericTextValue<NonZeroU8>,
+        ranges: SmallVec<[(u8, u8); 8]>,
+    },
     AndGate {
         width: NumericTextValue<NonZeroU8>,
         #[serde(skip)]
@@ -71,6 +92,29 @@ pub enum ComponentKind {
 }
 
 impl ComponentKind {
+    pub fn new_input() -> Self {
+        Self::Input {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+            name: "".to_owned(),
+            sim_wires: smallvec![],
+        }
+    }
+
+    pub fn new_clock_input() -> Self {
+        Self::ClockInput {
+            name: "".to_owned(),
+            sim_wire: gsim::WireId::INVALID,
+        }
+    }
+
+    pub fn new_output() -> Self {
+        Self::Output {
+            width: NumericTextValue::new(NonZeroU8::MIN),
+            name: "".to_owned(),
+            sim_wires: smallvec![],
+        }
+    }
+
     pub fn new_and_gate() -> Self {
         Self::AndGate {
             width: NumericTextValue::new(NonZeroU8::MIN),
@@ -115,6 +159,20 @@ impl ComponentKind {
 
     fn anchors(&self) -> SmallVec<[Anchor; 3]> {
         match self {
+            ComponentKind::Input { .. } | ComponentKind::ClockInput { .. } => {
+                anchors![Output(0, 1)]
+            }
+            ComponentKind::Output { .. } => anchors![Input(0, -1)],
+            ComponentKind::Splitter { ranges, .. } => {
+                let mut anchors = anchors![Passive(0, -1)];
+                for i in 0..ranges.len() {
+                    anchors.push(Anchor {
+                        position: Vec2i::new((i * 2) as i32, 1),
+                        kind: AnchorKind::Passive,
+                    });
+                }
+                anchors
+            }
             ComponentKind::AndGate { .. }
             | ComponentKind::OrGate { .. }
             | ComponentKind::XorGate { .. } => {
@@ -130,6 +188,15 @@ impl ComponentKind {
 
     fn bounding_box(&self) -> Rectangle {
         match self {
+            ComponentKind::Input { .. }
+            | ComponentKind::ClockInput { .. }
+            | ComponentKind::Output { .. } => Rectangle {
+                top: 1.0,
+                bottom: -1.0,
+                left: -1.0,
+                right: 1.0,
+            },
+            ComponentKind::Splitter { .. } => todo!(),
             ComponentKind::AndGate { .. }
             | ComponentKind::OrGate { .. }
             | ComponentKind::XorGate { .. }
@@ -151,6 +218,40 @@ impl ComponentKind {
         lang: &LangId,
     ) -> bool {
         match self {
+            ComponentKind::ClockInput { name, .. } => {
+                ui.horizontal(|ui| {
+                    ui.label(locale_manager.get(lang, "name-property-name"));
+                    ui.text_edit_singleline(name).lost_focus()
+                })
+                .inner
+            }
+            ComponentKind::Input { name, width, .. }
+            | ComponentKind::Output { name, width, .. } => {
+                let name_chaged = ui
+                    .horizontal(|ui| {
+                        ui.label(locale_manager.get(lang, "name-property-name"));
+                        ui.text_edit_singleline(name).lost_focus()
+                    })
+                    .inner;
+
+                let width_changed = ui
+                    .horizontal(|ui| {
+                        ui.label(locale_manager.get(lang, "bit-width-property-name"));
+                        ui.numeric_text_edit(width).lost_focus()
+                    })
+                    .inner;
+
+                name_chaged | width_changed
+            }
+            ComponentKind::Splitter { width, .. } => {
+                ui.horizontal(|ui| {
+                    ui.label(locale_manager.get(lang, "bit-width-property-name"));
+                    ui.numeric_text_edit(width).lost_focus()
+                })
+                .inner
+
+                // TODO: edit ranges
+            }
             ComponentKind::AndGate { width, .. }
             | ComponentKind::OrGate { width, .. }
             | ComponentKind::XorGate { width, .. }
@@ -166,8 +267,12 @@ impl ComponentKind {
         }
     }
 
-    pub fn name(&self) -> std::borrow::Cow<'static, str> {
+    pub fn label(&self) -> std::borrow::Cow<'static, str> {
         match self {
+            ComponentKind::ClockInput { .. } => "Φ".into(),
+            ComponentKind::Input { .. }
+            | ComponentKind::Output { .. }
+            | ComponentKind::Splitter { .. } => "".into(),
             ComponentKind::AndGate { .. } => "AND".into(),
             ComponentKind::OrGate { .. } => "OR".into(),
             ComponentKind::XorGate { .. } => "XOR".into(),
@@ -179,6 +284,11 @@ impl ComponentKind {
 
     pub fn reset_sim_ids(&mut self) {
         match self {
+            ComponentKind::ClockInput { sim_wire, .. } => *sim_wire = gsim::WireId::INVALID,
+            ComponentKind::Input { sim_wires, .. } | ComponentKind::Output { sim_wires, .. } => {
+                sim_wires.clear()
+            }
+            ComponentKind::Splitter { .. } => (),
             ComponentKind::AndGate { sim_component, .. }
             | ComponentKind::OrGate { sim_component, .. }
             | ComponentKind::XorGate { sim_component, .. }
