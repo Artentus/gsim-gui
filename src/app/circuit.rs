@@ -236,7 +236,7 @@ pub struct Circuit {
     #[serde(skip)]
     file_name: Option<PathBuf>,
     #[serde(skip)]
-    sim: Option<gsim::Simulator>,
+    sim: Option<(gsim::Simulator, bool)>,
 }
 
 impl Circuit {
@@ -999,20 +999,44 @@ impl Circuit {
         //  2. Create wire(s) in simulation graph for each net
         //  3. Create component(s) in simulation graph for each editor component
 
+        let clk_state = LogicState::LOGIC_0;
+        for component in &self.components {
+            match component.kind {
+                ComponentKind::Input {
+                    value, sim_wire, ..
+                } => {
+                    let state = LogicState::from_int(value);
+                    builder.set_wire_drive(sim_wire, &state).unwrap()
+                }
+                ComponentKind::ClockInput { sim_wire, .. } => {
+                    builder.set_wire_drive(sim_wire, &clk_state).unwrap()
+                }
+                _ => (),
+            }
+        }
+
         let mut sim = builder.build();
         let result = sim.run_sim(max_steps);
         if matches!(result, gsim::SimulationRunResult::Ok) {
-            self.sim = Some(sim);
+            self.sim = Some((sim, false));
         }
         result
     }
 
     pub fn step_simulation(&mut self, max_steps: u64) -> gsim::SimulationRunResult {
-        let Some(sim) = &mut self.sim else {
+        use gsim::*;
+
+        let Some((sim, clk)) = &mut self.sim else {
             panic!("simulation is not running");
         };
 
-        // TODO: toggle all clock sources
+        *clk = !*clk;
+        let clk_state = LogicState::from_bool(*clk);
+        for component in &self.components {
+            if let ComponentKind::ClockInput { sim_wire, .. } = component.kind {
+                sim.set_wire_drive(sim_wire, &clk_state).unwrap();
+            }
+        }
 
         let result = sim.run_sim(max_steps);
         if !matches!(result, gsim::SimulationRunResult::Ok) {

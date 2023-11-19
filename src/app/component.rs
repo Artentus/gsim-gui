@@ -40,9 +40,10 @@ macro_rules! anchors {
 pub enum ComponentKind {
     Input {
         name: String,
+        value: u32,
         width: NumericTextValue<NonZeroU8>,
         #[serde(skip)]
-        sim_wires: SmallVec<[gsim::WireId; 4]>,
+        sim_wire: gsim::WireId,
     },
     ClockInput {
         name: String,
@@ -53,7 +54,7 @@ pub enum ComponentKind {
         name: String,
         width: NumericTextValue<NonZeroU8>,
         #[serde(skip)]
-        sim_wires: SmallVec<[gsim::WireId; 4]>,
+        sim_wire: gsim::WireId,
     },
     Splitter {
         width: NumericTextValue<NonZeroU8>,
@@ -94,9 +95,10 @@ pub enum ComponentKind {
 impl ComponentKind {
     pub fn new_input() -> Self {
         Self::Input {
+            value: 0,
             width: NumericTextValue::new(NonZeroU8::MIN),
             name: "".to_owned(),
-            sim_wires: smallvec![],
+            sim_wire: gsim::WireId::INVALID,
         }
     }
 
@@ -111,7 +113,7 @@ impl ComponentKind {
         Self::Output {
             width: NumericTextValue::new(NonZeroU8::MIN),
             name: "".to_owned(),
-            sim_wires: smallvec![],
+            sim_wire: gsim::WireId::INVALID,
         }
     }
 
@@ -284,10 +286,9 @@ impl ComponentKind {
 
     pub fn reset_sim_ids(&mut self) {
         match self {
-            ComponentKind::ClockInput { sim_wire, .. } => *sim_wire = gsim::WireId::INVALID,
-            ComponentKind::Input { sim_wires, .. } | ComponentKind::Output { sim_wires, .. } => {
-                sim_wires.clear()
-            }
+            ComponentKind::Input { sim_wire, .. }
+            | ComponentKind::ClockInput { sim_wire, .. }
+            | ComponentKind::Output { sim_wire, .. } => *sim_wire = gsim::WireId::INVALID,
             ComponentKind::Splitter { .. } => (),
             ComponentKind::AndGate { sim_component, .. }
             | ComponentKind::OrGate { sim_component, .. }
