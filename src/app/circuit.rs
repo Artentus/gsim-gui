@@ -1036,6 +1036,24 @@ impl Circuit {
         });
     }
 
+    pub fn delete_selection(&mut self) {
+        let mut i = 0;
+        self.components.retain(|_| {
+            let in_selection = self.selection.contains_component(i);
+            i += 1;
+            !in_selection
+        });
+
+        let mut i = 0;
+        self.wire_segments.retain(|_| {
+            let in_selection = self.selection.contains_wire_segment(i);
+            i += 1;
+            !in_selection
+        });
+
+        self.selection = Selection::None;
+    }
+
     pub fn update_component_properties(
         &mut self,
         ui: &mut egui::Ui,
