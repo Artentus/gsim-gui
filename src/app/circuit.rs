@@ -1066,20 +1066,7 @@ impl Circuit {
         self.sim.is_some()
     }
 
-    pub fn start_simulation(&mut self, max_steps: u64) -> gsim::SimulationRunResult {
-        use gsim::*;
-
-        let mut builder = SimulatorBuilder::default();
-
-        // TODO: build simulation graph
-        //
-        //  1. Find connected nets of wire segments
-        //  2. Create wire(s) in simulation graph for each net
-        //  3. Create component(s) in simulation graph for each editor component
-
-        type WireSegmentIndex = usize;
-        type WireGroupIndex = usize;
-
+    fn find_wire_groups(&self) -> (Vec<Vec<usize>>, Vec<usize>) {
         fn segments_connect(a: &WireSegment, b: &WireSegment) -> bool {
             (a.endpoint_a == b.endpoint_a)
                 || (a.endpoint_a == b.endpoint_b)
@@ -1090,9 +1077,9 @@ impl Circuit {
         fn find_adjacent(
             segments: &[WireSegment],
             segment: &WireSegment,
-            group: &mut Vec<WireSegmentIndex>,
-            group_map: &mut Vec<Option<WireGroupIndex>>,
-            group_index: WireGroupIndex,
+            group: &mut Vec<usize>,
+            group_map: &mut Vec<Option<usize>>,
+            group_index: usize,
         ) {
             for (i, other_segment) in segments.iter().enumerate() {
                 if group_map[i].is_none() && segments_connect(segment, other_segment) {
@@ -1104,14 +1091,14 @@ impl Circuit {
             }
         }
 
-        let mut groups: Vec<Vec<WireSegmentIndex>> = Vec::new();
-        let mut group_map: Vec<Option<WireGroupIndex>> = vec![None; self.wire_segments.len()];
+        let mut groups = Vec::new();
+        let mut group_map = vec![None; self.wire_segments.len()];
         for (i, segment) in self.wire_segments.iter().enumerate() {
             if group_map[i].is_none() {
-                let group_index: WireGroupIndex = groups.len();
+                let group_index = groups.len();
                 group_map[i] = Some(group_index);
 
-                let mut group: Vec<WireSegmentIndex> = vec![i];
+                let mut group = vec![i];
                 find_adjacent(
                     &self.wire_segments,
                     segment,
@@ -1123,8 +1110,29 @@ impl Circuit {
             }
         }
 
-        println!("{groups:?}");
-        println!("{group_map:?}");
+        let group_map = group_map
+            .into_iter()
+            .map(|i| i.expect("wire with no group"))
+            .collect();
+
+        (groups, group_map)
+    }
+
+    pub fn start_simulation(&mut self, max_steps: u64) -> gsim::SimulationRunResult {
+        use gsim::*;
+
+        let mut builder = SimulatorBuilder::default();
+
+        // TODO: build simulation graph
+        //
+        //  1. Find connected nets of wire segments
+        //  2. Create wire(s) in simulation graph for each net
+        //  3. Create component(s) in simulation graph for each editor component
+
+        // connected nets of wire segments
+        let (groups, group_map) = self.find_wire_groups();
+        // TODO: find connected nets of wire segments _and_ splitters
+        // TODO: depending on splitter configuration, create one or more sim wires per group
 
         let clk_state = LogicState::LOGIC_0;
         for component in &self.components {
