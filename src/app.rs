@@ -630,7 +630,12 @@ impl eframe::App for App {
                 }
 
                 if ui.input(|state| state.key_pressed(Key::R)) {
-                    circuit.rotate_selection();
+                    if ui.input(|state| state.modifiers.shift) {
+                        circuit.clockwise_rotate_selection();
+                    } else {
+                        circuit.counterclockwise_rotate_selection();
+                    }
+
                     self.requires_redraw = true;
                 }
 

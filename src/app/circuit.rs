@@ -771,7 +771,12 @@ impl Circuit {
         }
     }
 
-    pub fn rotate_selection(&mut self) {
+    fn transform_selection(
+        &mut self,
+        apply_mirror: impl Fn(bool) -> bool,
+        apply_rot: impl Fn(Rotation) -> Rotation,
+        apply_pt: impl Fn(Vec2f) -> Vec2f,
+    ) {
         match self.selection {
             Selection::None => {}
             Selection::Component(component) => {
@@ -780,7 +785,8 @@ impl Circuit {
                     .get_mut(component)
                     .expect("invalid selection");
 
-                component.rotation = component.rotation.next();
+                component.mirrored = apply_mirror(component.mirrored);
+                component.rotation = apply_rot(component.rotation);
             }
             Selection::WireSegment(wire_segment) => {
                 let wire_segment = self
@@ -792,12 +798,12 @@ impl Circuit {
 
                 let a = wire_segment.endpoint_a.to_vec2f() - center;
                 let b = wire_segment.endpoint_b.to_vec2f() - center;
-                wire_segment.endpoint_a = (Vec2f::new(a.y, -a.x) + center).floor().to_vec2i();
-                wire_segment.endpoint_b = (Vec2f::new(b.y, -b.x) + center).floor().to_vec2i();
+                wire_segment.endpoint_a = (apply_pt(a) + center).floor().to_vec2i();
+                wire_segment.endpoint_b = (apply_pt(b) + center).floor().to_vec2i();
 
                 for p in wire_segment.midpoints.iter_mut() {
                     let rp = p.to_vec2f() - center;
-                    *p = (Vec2f::new(rp.y, -rp.x) + center).floor().to_vec2i();
+                    *p = (apply_pt(rp) + center).floor().to_vec2i();
                 }
             }
             Selection::Multi {
@@ -812,8 +818,9 @@ impl Circuit {
                         .expect("invalid selection");
 
                     let pos = component.position().to_vec2f() - center;
-                    component.set_position((Vec2f::new(pos.y, -pos.x) + center).floor().to_vec2i());
-                    component.rotation = component.rotation.next();
+                    component.set_position((apply_pt(pos) + center).floor().to_vec2i());
+                    component.mirrored = apply_mirror(component.mirrored);
+                    component.rotation = apply_rot(component.rotation);
                 }
 
                 for &wire_segment in wire_segments {
@@ -824,83 +831,34 @@ impl Circuit {
 
                     let a = wire_segment.endpoint_a.to_vec2f() - center;
                     let b = wire_segment.endpoint_b.to_vec2f() - center;
-                    wire_segment.endpoint_a = (Vec2f::new(a.y, -a.x) + center).floor().to_vec2i();
-                    wire_segment.endpoint_b = (Vec2f::new(b.y, -b.x) + center).floor().to_vec2i();
+                    wire_segment.endpoint_a = (apply_pt(a) + center).floor().to_vec2i();
+                    wire_segment.endpoint_b = (apply_pt(b) + center).floor().to_vec2i();
 
                     for p in wire_segment.midpoints.iter_mut() {
                         let rp = p.to_vec2f() - center;
-                        *p = (Vec2f::new(rp.y, -rp.x) + center).floor().to_vec2i();
+                        *p = (apply_pt(rp) + center).floor().to_vec2i();
                     }
                 }
             }
         }
     }
 
+    pub fn counterclockwise_rotate_selection(&mut self) {
+        self.transform_selection(std::convert::identity, Rotation::next, |v| {
+            Vec2f::new(-v.y, v.x)
+        });
+    }
+
+    pub fn clockwise_rotate_selection(&mut self) {
+        self.transform_selection(std::convert::identity, Rotation::prev, |v| {
+            Vec2f::new(v.y, -v.x)
+        });
+    }
+
     pub fn mirror_selection(&mut self) {
-        match self.selection {
-            Selection::None => {}
-            Selection::Component(component) => {
-                let component = self
-                    .components
-                    .get_mut(component)
-                    .expect("invalid selection");
-
-                component.mirrored = !component.mirrored;
-                component.rotation = component.rotation.mirror();
-            }
-            Selection::WireSegment(wire_segment) => {
-                let wire_segment = self
-                    .wire_segments
-                    .get_mut(wire_segment)
-                    .expect("invalid selection");
-
-                let center = (wire_segment.endpoint_a + wire_segment.endpoint_b).to_vec2f() * 0.5;
-
-                let a = wire_segment.endpoint_a.to_vec2f() - center;
-                let b = wire_segment.endpoint_b.to_vec2f() - center;
-                wire_segment.endpoint_a = (Vec2f::new(-a.x, a.y) + center).floor().to_vec2i();
-                wire_segment.endpoint_b = (Vec2f::new(-b.x, b.y) + center).floor().to_vec2i();
-
-                for p in wire_segment.midpoints.iter_mut() {
-                    let rp = p.to_vec2f() - center;
-                    *p = (Vec2f::new(-rp.x, rp.y) + center).floor().to_vec2i();
-                }
-            }
-            Selection::Multi {
-                ref components,
-                ref wire_segments,
-                center,
-            } => {
-                for &component in components {
-                    let component = self
-                        .components
-                        .get_mut(component)
-                        .expect("invalid selection");
-
-                    let pos = component.position().to_vec2f() - center;
-                    component.set_position((Vec2f::new(-pos.x, pos.y) + center).floor().to_vec2i());
-                    component.mirrored = !component.mirrored;
-                    component.rotation = component.rotation.mirror();
-                }
-
-                for &wire_segment in wire_segments {
-                    let wire_segment = self
-                        .wire_segments
-                        .get_mut(wire_segment)
-                        .expect("invalid selection");
-
-                    let a = wire_segment.endpoint_a.to_vec2f() - center;
-                    let b = wire_segment.endpoint_b.to_vec2f() - center;
-                    wire_segment.endpoint_a = (Vec2f::new(-a.x, a.y) + center).floor().to_vec2i();
-                    wire_segment.endpoint_b = (Vec2f::new(-b.x, b.y) + center).floor().to_vec2i();
-
-                    for p in wire_segment.midpoints.iter_mut() {
-                        let rp = p.to_vec2f() - center;
-                        *p = (Vec2f::new(-rp.x, rp.y) + center).floor().to_vec2i();
-                    }
-                }
-            }
-        }
+        self.transform_selection(std::ops::Not::not, Rotation::mirror, |v| {
+            Vec2f::new(-v.x, v.y)
+        });
     }
 
     pub fn update_component_properties(

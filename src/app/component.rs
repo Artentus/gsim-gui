@@ -320,6 +320,15 @@ impl Rotation {
         Rotation::Deg270,
     ];
 
+    pub fn prev(self) -> Self {
+        match self {
+            Rotation::Deg0 => Rotation::Deg270,
+            Rotation::Deg90 => Rotation::Deg0,
+            Rotation::Deg180 => Rotation::Deg90,
+            Rotation::Deg270 => Rotation::Deg180,
+        }
+    }
+
     pub fn next(self) -> Self {
         match self {
             Rotation::Deg0 => Rotation::Deg90,
