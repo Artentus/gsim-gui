@@ -269,7 +269,33 @@ fn draw_wires(builder: &mut vello::SceneBuilder, circuit: &Circuit) {
         }
         path.line_to((segment.endpoint_b.x as f64, segment.endpoint_b.y as f64));
 
+        let anchor_a = Circle::new(
+            (segment.endpoint_a.x as f64, segment.endpoint_a.y as f64),
+            (LOGICAL_PIXEL_SIZE * 2.0) as f64,
+        );
+
+        let anchor_b = Circle::new(
+            (segment.endpoint_b.x as f64, segment.endpoint_b.y as f64),
+            (LOGICAL_PIXEL_SIZE * 2.0) as f64,
+        );
+
         builder.stroke(&stroke, Affine::IDENTITY, stroke_color, None, &path);
+
+        builder.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::BLUE,
+            None,
+            &anchor_a,
+        );
+
+        builder.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::BLUE,
+            None,
+            &anchor_b,
+        );
     }
 }
 

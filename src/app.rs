@@ -619,7 +619,8 @@ impl eframe::App for App {
                         rel_pos -= response.rect.size() * 0.5;
 
                         if ui.input(|state| state.pointer.button_pressed(PointerButton::Primary)) {
-                            self.requires_redraw |= circuit.primary_button_pressed(rel_pos.into());
+                            self.requires_redraw |=
+                                circuit.primary_button_pressed(rel_pos.into(), self.drag_mode);
                         } else if ui
                             .input(|state| state.pointer.button_pressed(PointerButton::Secondary))
                         {

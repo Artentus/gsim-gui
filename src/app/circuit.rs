@@ -191,7 +191,12 @@ enum DragState {
         drag_start: Vec2f,
         drag_delta: Vec2f,
     },
-    DrawingWireSegment {
+    DraggingWirePointA {
+        wire_segment: usize,
+        drag_start: Vec2f,
+        drag_delta: Vec2f,
+    },
+    DraggingWirePointB {
         wire_segment: usize,
         drag_start: Vec2f,
         drag_delta: Vec2f,
@@ -214,6 +219,9 @@ enum HitTestResult {
     None,
     Component(usize),
     WireSegment(usize),
+    ComponentAnchor(usize),
+    WirePointA(usize),
+    WirePointB(usize),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -349,12 +357,30 @@ impl Circuit {
 
     fn hit_test(&self, logical_pos: Vec2f) -> HitTestResult {
         for (i, component) in self.components.iter().enumerate() {
+            for anchor in component.anchors() {
+                if (logical_pos - anchor.position.to_vec2f()).len() <= (LOGICAL_PIXEL_SIZE * 2.0) {
+                    return HitTestResult::ComponentAnchor(i);
+                }
+            }
+
             if component.bounding_box().contains(logical_pos) {
                 return HitTestResult::Component(i);
             }
         }
 
         for (i, wire_segment) in self.wire_segments.iter().enumerate() {
+            if (logical_pos - wire_segment.endpoint_a.to_vec2f()).len()
+                <= (LOGICAL_PIXEL_SIZE * 2.0)
+            {
+                return HitTestResult::WirePointA(i);
+            }
+
+            if (logical_pos - wire_segment.endpoint_b.to_vec2f()).len()
+                <= (LOGICAL_PIXEL_SIZE * 2.0)
+            {
+                return HitTestResult::WirePointB(i);
+            }
+
             if wire_segment.contains(logical_pos) {
                 return HitTestResult::WireSegment(i);
             }
@@ -363,7 +389,7 @@ impl Circuit {
         HitTestResult::None
     }
 
-    pub fn primary_button_pressed(&mut self, pos: Vec2f) -> bool {
+    pub fn primary_button_pressed(&mut self, pos: Vec2f, drag_mode: DragMode) -> bool {
         assert!(
             is_discriminant!(self.drag_state, DragState::None),
             "invalid drag state"
@@ -372,8 +398,8 @@ impl Circuit {
         let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
         let hit = self.hit_test(logical_pos);
 
-        let requires_redraw = match hit {
-            HitTestResult::None => {
+        let requires_redraw = match (hit, drag_mode) {
+            (HitTestResult::None, _) => {
                 if !matches!(self.selection, Selection::None) {
                     self.selection = Selection::None;
                     true
@@ -381,7 +407,8 @@ impl Circuit {
                     false
                 }
             }
-            HitTestResult::Component(component) => {
+            (HitTestResult::Component(component), _)
+            | (HitTestResult::ComponentAnchor(component), DragMode::BoxSelection) => {
                 if !self.selection.contains_component(component) {
                     self.selection = Selection::Component(component);
                     true
@@ -389,7 +416,9 @@ impl Circuit {
                     false
                 }
             }
-            HitTestResult::WireSegment(wire_segment) => {
+            (HitTestResult::WireSegment(wire_segment), DragMode::BoxSelection)
+            | (HitTestResult::WirePointA(wire_segment), DragMode::BoxSelection)
+            | (HitTestResult::WirePointB(wire_segment), DragMode::BoxSelection) => {
                 if !self.selection.contains_wire_segment(wire_segment) {
                     self.selection = Selection::WireSegment(wire_segment);
                     true
@@ -397,6 +426,10 @@ impl Circuit {
                     false
                 }
             }
+            (HitTestResult::ComponentAnchor(_), DragMode::DrawWire)
+            | (HitTestResult::WireSegment(_), DragMode::DrawWire)
+            | (HitTestResult::WirePointA(_), DragMode::DrawWire)
+            | (HitTestResult::WirePointB(_), DragMode::DrawWire) => false,
         };
 
         self.drag_state = DragState::Deadzone {
@@ -405,7 +438,6 @@ impl Circuit {
         };
 
         self.primary_button_down = true;
-
         requires_redraw
     }
 
@@ -424,11 +456,14 @@ impl Circuit {
                             requires_redraw = true;
                         }
                     }
-                    HitTestResult::Component(component) => {
+                    HitTestResult::Component(component)
+                    | HitTestResult::ComponentAnchor(component) => {
                         self.selection = Selection::Component(component);
                         requires_redraw = true;
                     }
-                    HitTestResult::WireSegment(wire_segment) => {
+                    HitTestResult::WireSegment(wire_segment)
+                    | HitTestResult::WirePointA(wire_segment)
+                    | HitTestResult::WirePointB(wire_segment) => {
                         self.selection = Selection::WireSegment(wire_segment);
                         requires_redraw = true;
                     }
@@ -525,7 +560,7 @@ impl Circuit {
                         requires_redraw = true;
                     }
                 }
-                HitTestResult::Component(component) => {
+                HitTestResult::Component(component) | HitTestResult::ComponentAnchor(component) => {
                     if !self.selection.contains_component(component) {
                         self.selection = Selection::Component(component);
                         requires_redraw = true;
@@ -533,7 +568,9 @@ impl Circuit {
 
                     // TODO: show context menu
                 }
-                HitTestResult::WireSegment(wire_segment) => {
+                HitTestResult::WireSegment(wire_segment)
+                | HitTestResult::WirePointA(wire_segment)
+                | HitTestResult::WirePointB(wire_segment) => {
                     if !self.selection.contains_wire_segment(wire_segment) {
                         self.selection = Selection::WireSegment(wire_segment);
                         requires_redraw = true;
@@ -607,6 +644,8 @@ impl Circuit {
     }
 
     pub fn mouse_moved(&mut self, delta: Vec2f, drag_mode: DragMode) -> bool {
+        const DEADZONE_RANGE: f32 = 1.0;
+
         if self.primary_button_down && !self.secondary_button_down {
             match &mut self.drag_state {
                 DragState::None => false,
@@ -619,41 +658,43 @@ impl Circuit {
                     let drag_start = *drag_start;
                     let drag_delta = *drag_delta;
 
-                    const DEADZONE_RANGE: f32 = 1.0;
                     if (drag_delta.x.abs() >= DEADZONE_RANGE)
                         || (drag_delta.y.abs() >= DEADZONE_RANGE)
                     {
                         let hit = self.hit_test(drag_start);
 
-                        self.drag_state = match hit {
-                            HitTestResult::None => match drag_mode {
-                                DragMode::BoxSelection => DragState::DrawingBoxSelection {
+                        self.drag_state = match (hit, drag_mode) {
+                            (HitTestResult::None, DragMode::BoxSelection) => {
+                                DragState::DrawingBoxSelection {
                                     drag_start,
                                     drag_delta,
-                                },
-                                DragMode::DrawWire => {
-                                    let endpoint_a = drag_start.round().to_vec2i();
-                                    let endpoint_b = (drag_start + drag_delta).round().to_vec2i();
-
-                                    let mut segment = WireSegment {
-                                        endpoint_a,
-                                        midpoints: smallvec![],
-                                        endpoint_b,
-                                        sim_wires: smallvec![],
-                                    };
-                                    segment.update_midpoints();
-
-                                    let wire_segment = self.wire_segments.len();
-                                    self.wire_segments.push(segment);
-
-                                    DragState::DrawingWireSegment {
-                                        wire_segment,
-                                        drag_start,
-                                        drag_delta,
-                                    }
                                 }
-                            },
-                            HitTestResult::Component(component) => {
+                            }
+                            (HitTestResult::None, DragMode::DrawWire)
+                            | (HitTestResult::ComponentAnchor(_), DragMode::DrawWire) => {
+                                let endpoint_a = drag_start.round().to_vec2i();
+                                let endpoint_b = (drag_start + drag_delta).round().to_vec2i();
+
+                                let mut segment = WireSegment {
+                                    endpoint_a,
+                                    midpoints: smallvec![],
+                                    endpoint_b,
+                                    sim_wires: smallvec![],
+                                };
+                                segment.update_midpoints();
+
+                                let wire_segment = self.wire_segments.len();
+                                self.wire_segments.push(segment);
+
+                                DragState::DraggingWirePointB {
+                                    wire_segment,
+                                    drag_start,
+                                    drag_delta,
+                                }
+                            }
+                            (HitTestResult::Component(component), _)
+                            | (HitTestResult::ComponentAnchor(component), DragMode::BoxSelection) =>
+                            {
                                 assert!(
                                     self.selection.contains_component(component),
                                     "invalid drag state"
@@ -664,7 +705,7 @@ impl Circuit {
                                     fract_drag_delta: drag_delta,
                                 }
                             }
-                            HitTestResult::WireSegment(wire_segment) => {
+                            (HitTestResult::WireSegment(wire_segment), DragMode::BoxSelection) => {
                                 assert!(
                                     self.selection.contains_wire_segment(wire_segment),
                                     "invalid drag state"
@@ -673,6 +714,65 @@ impl Circuit {
                                 // TODO: already drag whole part of delta
                                 DragState::Dragging {
                                     fract_drag_delta: drag_delta,
+                                }
+                            }
+                            (HitTestResult::WirePointA(wire_segment), DragMode::BoxSelection) => {
+                                DragState::DraggingWirePointA {
+                                    wire_segment,
+                                    drag_start,
+                                    drag_delta,
+                                }
+                            }
+                            (HitTestResult::WirePointB(wire_segment), DragMode::BoxSelection) => {
+                                DragState::DraggingWirePointB {
+                                    wire_segment,
+                                    drag_start,
+                                    drag_delta,
+                                }
+                            }
+                            (HitTestResult::WireSegment(_wire_segment), DragMode::DrawWire) => {
+                                // TODO: split the existing segment at the new wires start point
+
+                                let endpoint_a = drag_start.round().to_vec2i();
+                                let endpoint_b = (drag_start + drag_delta).round().to_vec2i();
+
+                                let mut segment = WireSegment {
+                                    endpoint_a,
+                                    midpoints: smallvec![],
+                                    endpoint_b,
+                                    sim_wires: smallvec![],
+                                };
+                                segment.update_midpoints();
+
+                                let wire_segment = self.wire_segments.len();
+                                self.wire_segments.push(segment);
+
+                                DragState::DraggingWirePointB {
+                                    wire_segment,
+                                    drag_start,
+                                    drag_delta,
+                                }
+                            }
+                            (HitTestResult::WirePointA(_), DragMode::DrawWire)
+                            | (HitTestResult::WirePointB(_), DragMode::DrawWire) => {
+                                let endpoint_a = drag_start.round().to_vec2i();
+                                let endpoint_b = (drag_start + drag_delta).round().to_vec2i();
+
+                                let mut segment = WireSegment {
+                                    endpoint_a,
+                                    midpoints: smallvec![],
+                                    endpoint_b,
+                                    sim_wires: smallvec![],
+                                };
+                                segment.update_midpoints();
+
+                                let wire_segment = self.wire_segments.len();
+                                self.wire_segments.push(segment);
+
+                                DragState::DraggingWirePointB {
+                                    wire_segment,
+                                    drag_start,
+                                    drag_delta,
                                 }
                             }
                         };
@@ -686,7 +786,27 @@ impl Circuit {
                     *drag_delta += delta;
                     true
                 }
-                DragState::DrawingWireSegment {
+                DragState::DraggingWirePointA {
+                    wire_segment,
+                    drag_start,
+                    drag_delta,
+                } => {
+                    *drag_delta += delta;
+
+                    let wire_segment = self
+                        .wire_segments
+                        .get_mut(*wire_segment)
+                        .expect("invalid drag state");
+
+                    let new_a = (*drag_start + *drag_delta).round().to_vec2i();
+                    if wire_segment.endpoint_a != new_a {
+                        wire_segment.endpoint_a = new_a;
+                        wire_segment.update_midpoints();
+                    }
+
+                    true
+                }
+                DragState::DraggingWirePointB {
                     wire_segment,
                     drag_start,
                     drag_delta,
@@ -956,6 +1076,55 @@ impl Circuit {
         //  1. Find connected nets of wire segments
         //  2. Create wire(s) in simulation graph for each net
         //  3. Create component(s) in simulation graph for each editor component
+
+        type WireSegmentIndex = usize;
+        type WireGroupIndex = usize;
+
+        fn segments_connect(a: &WireSegment, b: &WireSegment) -> bool {
+            (a.endpoint_a == b.endpoint_a)
+                || (a.endpoint_a == b.endpoint_b)
+                || (a.endpoint_b == b.endpoint_a)
+                || (a.endpoint_b == b.endpoint_b)
+        }
+
+        fn find_adjacent(
+            segments: &[WireSegment],
+            segment: &WireSegment,
+            group: &mut Vec<WireSegmentIndex>,
+            group_map: &mut Vec<Option<WireGroupIndex>>,
+            group_index: WireGroupIndex,
+        ) {
+            for (i, other_segment) in segments.iter().enumerate() {
+                if group_map[i].is_none() && segments_connect(segment, other_segment) {
+                    group_map[i] = Some(group_index);
+
+                    group.push(i);
+                    find_adjacent(segments, other_segment, group, group_map, group_index);
+                }
+            }
+        }
+
+        let mut groups: Vec<Vec<WireSegmentIndex>> = Vec::new();
+        let mut group_map: Vec<Option<WireGroupIndex>> = vec![None; self.wire_segments.len()];
+        for (i, segment) in self.wire_segments.iter().enumerate() {
+            if group_map[i].is_none() {
+                let group_index: WireGroupIndex = groups.len();
+                group_map[i] = Some(group_index);
+
+                let mut group: Vec<WireSegmentIndex> = vec![i];
+                find_adjacent(
+                    &self.wire_segments,
+                    segment,
+                    &mut group,
+                    &mut group_map,
+                    group_index,
+                );
+                groups.push(group);
+            }
+        }
+
+        println!("{groups:?}");
+        println!("{group_map:?}");
 
         let clk_state = LogicState::LOGIC_0;
         for component in &self.components {
