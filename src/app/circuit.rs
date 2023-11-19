@@ -44,7 +44,7 @@ pub struct WireSegment {
 }
 
 impl WireSegment {
-    pub fn contains(&self, p: Vec2f) -> bool {
+    pub fn contains(&self, p: Vec2f) -> Option<usize> {
         // Bounding box test
         let midpoints = self.midpoints.iter().copied();
         let endpoint_a = std::iter::once(self.endpoint_a);
@@ -65,7 +65,7 @@ impl WireSegment {
         };
 
         if !bb.contains(p) {
-            return false;
+            return None;
         }
 
         // Triangle test
@@ -73,7 +73,7 @@ impl WireSegment {
         let endpoint_b = std::iter::once(self.endpoint_b);
 
         let mut a = self.endpoint_a.to_vec2f();
-        for b in midpoints.chain(endpoint_b).map(Vec2i::to_vec2f) {
+        for (i, b) in midpoints.chain(endpoint_b).map(Vec2i::to_vec2f).enumerate() {
             let dir = (b - a).normalized();
             let left = Vec2f::new(dir.y, -dir.x) * LOGICAL_PIXEL_SIZE;
             let right = Vec2f::new(-dir.y, dir.x) * LOGICAL_PIXEL_SIZE;
@@ -94,13 +94,13 @@ impl WireSegment {
             };
 
             if t1.contains(p) || t2.contains(p) {
-                return true;
+                return Some(i);
             }
 
             a = b;
         }
 
-        false
+        None
     }
 
     fn update_midpoints(&mut self) {
@@ -136,6 +136,30 @@ impl WireSegment {
         if self.midpoints.len() <= self.midpoints.inline_size() {
             self.midpoints.shrink_to_fit();
         }
+    }
+
+    fn split_at(&mut self, index: usize, p: Vec2i) -> WireSegment {
+        let (mut left, mut right) = self.midpoints.split_at(index);
+
+        if Some(p) == left.last().copied() {
+            left = &left[..(left.len() - 1)];
+        }
+
+        if Some(p) == right.first().copied() {
+            right = &right[1..];
+        }
+
+        let new = WireSegment {
+            endpoint_a: p,
+            midpoints: right.into(),
+            endpoint_b: self.endpoint_b,
+            sim_wires: self.sim_wires.clone(),
+        };
+
+        self.midpoints = left.into();
+        self.endpoint_b = p;
+
+        new
     }
 }
 
@@ -218,7 +242,7 @@ macro_rules! is_discriminant {
 enum HitTestResult {
     None,
     Component(usize),
-    WireSegment(usize),
+    WireSegment(usize, usize),
     ComponentAnchor(usize),
     WirePointA(usize),
     WirePointB(usize),
@@ -355,7 +379,7 @@ impl Circuit {
         Ok(circuit)
     }
 
-    fn hit_test(&self, logical_pos: Vec2f) -> HitTestResult {
+    fn hit_test(&self, logical_pos: Vec2f, exclude_wire: Option<usize>) -> HitTestResult {
         for (i, component) in self.components.iter().enumerate() {
             for anchor in component.anchors() {
                 if (logical_pos - anchor.position.to_vec2f()).len() <= (LOGICAL_PIXEL_SIZE * 2.0) {
@@ -369,6 +393,10 @@ impl Circuit {
         }
 
         for (i, wire_segment) in self.wire_segments.iter().enumerate() {
+            if Some(i) == exclude_wire {
+                continue;
+            }
+
             if (logical_pos - wire_segment.endpoint_a.to_vec2f()).len()
                 <= (LOGICAL_PIXEL_SIZE * 2.0)
             {
@@ -381,8 +409,8 @@ impl Circuit {
                 return HitTestResult::WirePointB(i);
             }
 
-            if wire_segment.contains(logical_pos) {
-                return HitTestResult::WireSegment(i);
+            if let Some(split_point) = wire_segment.contains(logical_pos) {
+                return HitTestResult::WireSegment(i, split_point);
             }
         }
 
@@ -396,7 +424,7 @@ impl Circuit {
         );
 
         let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
-        let hit = self.hit_test(logical_pos);
+        let hit = self.hit_test(logical_pos, None);
 
         let requires_redraw = match (hit, drag_mode) {
             (HitTestResult::None, _) => {
@@ -416,7 +444,7 @@ impl Circuit {
                     false
                 }
             }
-            (HitTestResult::WireSegment(wire_segment), DragMode::BoxSelection)
+            (HitTestResult::WireSegment(wire_segment, _), DragMode::BoxSelection)
             | (HitTestResult::WirePointA(wire_segment), DragMode::BoxSelection)
             | (HitTestResult::WirePointB(wire_segment), DragMode::BoxSelection) => {
                 if !self.selection.contains_wire_segment(wire_segment) {
@@ -427,7 +455,7 @@ impl Circuit {
                 }
             }
             (HitTestResult::ComponentAnchor(_), DragMode::DrawWire)
-            | (HitTestResult::WireSegment(_), DragMode::DrawWire)
+            | (HitTestResult::WireSegment(_, _), DragMode::DrawWire)
             | (HitTestResult::WirePointA(_), DragMode::DrawWire)
             | (HitTestResult::WirePointB(_), DragMode::DrawWire) => false,
         };
@@ -447,7 +475,7 @@ impl Circuit {
         if self.primary_button_down {
             if is_discriminant!(self.drag_state, DragState::None) {
                 let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
-                let hit = self.hit_test(logical_pos);
+                let hit = self.hit_test(logical_pos, None);
 
                 match hit {
                     HitTestResult::None => {
@@ -461,7 +489,7 @@ impl Circuit {
                         self.selection = Selection::Component(component);
                         requires_redraw = true;
                     }
-                    HitTestResult::WireSegment(wire_segment)
+                    HitTestResult::WireSegment(wire_segment, _)
                     | HitTestResult::WirePointA(wire_segment)
                     | HitTestResult::WirePointB(wire_segment) => {
                         self.selection = Selection::WireSegment(wire_segment);
@@ -518,23 +546,41 @@ impl Circuit {
                 requires_redraw = true;
             }
 
+            //   If we were drawing a wire segment we want to split an existing
+            //   segment that exactly intersects with the new segments endpoints.
+            //
+            //   x-----------------------x
+            //               ^ dragging on top
+            //               x
+            //               |
+            //               |
+            //
+            //               v split existing segment here
+            //   x-----------x-----------x
+            //               |
+            //               |
+            let dragged = match self.drag_state {
+                DragState::DraggingWirePointA { wire_segment, .. } => {
+                    Some((wire_segment, self.wire_segments[wire_segment].endpoint_a))
+                }
+                DragState::DraggingWirePointB { wire_segment, .. } => {
+                    Some((wire_segment, self.wire_segments[wire_segment].endpoint_b))
+                }
+                _ => None,
+            };
+            if let Some((dragged_wire, dragged_endpoint)) = dragged {
+                if let HitTestResult::WireSegment(split_segment, split_index) =
+                    self.hit_test(dragged_endpoint.to_vec2f(), Some(dragged_wire))
+                {
+                    let old_split_segment = &mut self.wire_segments[split_segment];
+                    let new_split_segment =
+                        old_split_segment.split_at(split_index, dragged_endpoint);
+                    self.wire_segments.push(new_split_segment);
+                }
+            }
+
             self.drag_state = DragState::None;
         }
-
-        // TODO:
-        //   If we were drawing a wire segment we want to potentially split existing
-        //   segments if they exactly intersect with one of the new segments endpoints.
-        //
-        //   x-----------------------x
-        //               ^ dragging on top
-        //               x
-        //               |
-        //               |
-        //
-        //               v split existing segment here
-        //   x-----------x-----------x
-        //               |
-        //               |
 
         self.primary_button_down = false;
 
@@ -551,7 +597,7 @@ impl Circuit {
 
         if self.secondary_button_down {
             let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
-            let hit = self.hit_test(logical_pos);
+            let hit = self.hit_test(logical_pos, None);
 
             match hit {
                 HitTestResult::None => {
@@ -568,7 +614,7 @@ impl Circuit {
 
                     // TODO: show context menu
                 }
-                HitTestResult::WireSegment(wire_segment)
+                HitTestResult::WireSegment(wire_segment, _)
                 | HitTestResult::WirePointA(wire_segment)
                 | HitTestResult::WirePointB(wire_segment) => {
                     if !self.selection.contains_wire_segment(wire_segment) {
@@ -661,7 +707,7 @@ impl Circuit {
                     if (drag_delta.x.abs() >= DEADZONE_RANGE)
                         || (drag_delta.y.abs() >= DEADZONE_RANGE)
                     {
-                        let hit = self.hit_test(drag_start);
+                        let hit = self.hit_test(drag_start, None);
 
                         self.drag_state = match (hit, drag_mode) {
                             (HitTestResult::None, DragMode::BoxSelection) => {
@@ -705,7 +751,10 @@ impl Circuit {
                                     fract_drag_delta: drag_delta,
                                 }
                             }
-                            (HitTestResult::WireSegment(wire_segment), DragMode::BoxSelection) => {
+                            (
+                                HitTestResult::WireSegment(wire_segment, _),
+                                DragMode::BoxSelection,
+                            ) => {
                                 assert!(
                                     self.selection.contains_wire_segment(wire_segment),
                                     "invalid drag state"
@@ -730,11 +779,17 @@ impl Circuit {
                                     drag_delta,
                                 }
                             }
-                            (HitTestResult::WireSegment(_wire_segment), DragMode::DrawWire) => {
-                                // TODO: split the existing segment at the new wires start point
-
+                            (
+                                HitTestResult::WireSegment(wire_segment, split_index),
+                                DragMode::DrawWire,
+                            ) => {
                                 let endpoint_a = drag_start.round().to_vec2i();
                                 let endpoint_b = (drag_start + drag_delta).round().to_vec2i();
+
+                                let old_split_segment = &mut self.wire_segments[wire_segment];
+                                let new_split_segment =
+                                    old_split_segment.split_at(split_index, endpoint_a);
+                                self.wire_segments.push(new_split_segment);
 
                                 let mut segment = WireSegment {
                                     endpoint_a,
