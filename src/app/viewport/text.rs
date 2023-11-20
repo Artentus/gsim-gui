@@ -292,22 +292,27 @@ impl TextPass {
         const NAME_FONT_SIZE: f32 = 1.0;
 
         for (i, component) in circuit.components().iter().enumerate() {
-            let name = component.kind.label();
+            let label = component.kind.label();
+            let name = component.kind.name();
+            let selected = circuit.selection().contains_component(i);
 
-            if !name.is_empty() {
-                let selected = circuit.selection().contains_component(i);
-                let name_width = self.atlas.measure_text(&name);
+            if !label.is_empty() {
+                let name_width = self.atlas.measure_text(&label);
                 let name_offset =
                     Vec2f::new(name_width, self.atlas.line_height) * NAME_FONT_SIZE * 0.5;
 
                 self.draw_text(
                     render_state,
                     render_target,
-                    &name,
+                    &label,
                     selected,
                     component.position().to_vec2f() - name_offset,
                     NAME_FONT_SIZE,
                 );
+            }
+
+            if !name.is_empty() {
+                // TODO: draw name next to component
             }
         }
 

@@ -269,18 +269,33 @@ impl ComponentKind {
         }
     }
 
-    pub fn label(&self) -> std::borrow::Cow<'static, str> {
+    pub fn label(&self) -> &str {
         match self {
-            ComponentKind::ClockInput { .. } => "Φ".into(),
+            ComponentKind::ClockInput { .. } => "Φ",
             ComponentKind::Input { .. }
             | ComponentKind::Output { .. }
-            | ComponentKind::Splitter { .. } => "".into(),
-            ComponentKind::AndGate { .. } => "AND".into(),
-            ComponentKind::OrGate { .. } => "OR".into(),
-            ComponentKind::XorGate { .. } => "XOR".into(),
-            ComponentKind::NandGate { .. } => "NAND".into(),
-            ComponentKind::NorGate { .. } => "NOR".into(),
-            ComponentKind::XnorGate { .. } => "XNOR".into(),
+            | ComponentKind::Splitter { .. } => "",
+            ComponentKind::AndGate { .. } => "AND",
+            ComponentKind::OrGate { .. } => "OR",
+            ComponentKind::XorGate { .. } => "XOR",
+            ComponentKind::NandGate { .. } => "NAND",
+            ComponentKind::NorGate { .. } => "NOR",
+            ComponentKind::XnorGate { .. } => "XNOR",
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            ComponentKind::ClockInput { name, .. }
+            | ComponentKind::Input { name, .. }
+            | ComponentKind::Output { name, .. } => name,
+            ComponentKind::Splitter { .. }
+            | ComponentKind::AndGate { .. }
+            | ComponentKind::OrGate { .. }
+            | ComponentKind::XorGate { .. }
+            | ComponentKind::NandGate { .. }
+            | ComponentKind::NorGate { .. }
+            | ComponentKind::XnorGate { .. } => "",
         }
     }
 
