@@ -2,9 +2,10 @@ use super::component::*;
 use super::locale::*;
 use super::viewport::{BASE_ZOOM, LOGICAL_PIXEL_SIZE};
 use crate::app::math::*;
-use crate::HashSet;
+use crate::{is_discriminant, HashSet};
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
+use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -230,15 +231,6 @@ enum DragState {
     },
 }
 
-macro_rules! is_discriminant {
-    ($value:expr, $discriminant:path) => {
-        match &$value {
-            $discriminant { .. } => true,
-            _ => false,
-        }
-    };
-}
-
 enum HitTestResult {
     None,
     Component(usize),
@@ -246,6 +238,20 @@ enum HitTestResult {
     ComponentAnchor(usize),
     WirePointA(usize),
     WirePointB(usize),
+}
+
+#[derive(Default)]
+pub enum SimState {
+    #[default]
+    None,
+    Active {
+        sim: gsim::Simulator,
+        clock_state: bool,
+    },
+    Conflict {
+        sim: gsim::Simulator,
+        conflict_segments: HashSet<usize>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -268,7 +274,7 @@ pub struct Circuit {
     #[serde(skip)]
     file_name: Option<PathBuf>,
     #[serde(skip)]
-    sim: Option<(gsim::Simulator, bool)>,
+    sim_state: SimState,
 }
 
 impl Circuit {
@@ -285,7 +291,7 @@ impl Circuit {
             primary_button_down: false,
             secondary_button_down: false,
             file_name: None,
-            sim: None,
+            sim_state: SimState::None,
         }
     }
 
@@ -369,6 +375,11 @@ impl Circuit {
         self.file_name = Some(file_name);
     }
 
+    #[inline]
+    pub fn sim_state(&self) -> &SimState {
+        &self.sim_state
+    }
+
     pub fn serialize(&self) -> Vec<u8> {
         serde_json::to_vec_pretty(self).unwrap()
     }
@@ -417,7 +428,12 @@ impl Circuit {
         HitTestResult::None
     }
 
-    pub fn primary_button_pressed(&mut self, pos: Vec2f, drag_mode: DragMode) -> bool {
+    pub fn primary_button_pressed(
+        &mut self,
+        pos: Vec2f,
+        drag_mode: DragMode,
+        max_steps: u64,
+    ) -> bool {
         assert!(
             is_discriminant!(self.drag_state, DragState::None),
             "invalid drag state"
@@ -426,43 +442,84 @@ impl Circuit {
         let logical_pos = pos / (self.zoom * BASE_ZOOM) + self.offset;
         let hit = self.hit_test(logical_pos, None);
 
-        let requires_redraw = match (hit, drag_mode) {
-            (HitTestResult::None, _) => {
-                if !matches!(self.selection, Selection::None) {
-                    self.selection = Selection::None;
-                    true
-                } else {
-                    false
-                }
-            }
-            (HitTestResult::Component(component), _)
-            | (HitTestResult::ComponentAnchor(component), DragMode::BoxSelection) => {
-                if !self.selection.contains_component(component) {
-                    self.selection = Selection::Component(component);
-                    true
-                } else {
-                    false
-                }
-            }
-            (HitTestResult::WireSegment(wire_segment, _), DragMode::BoxSelection)
-            | (HitTestResult::WirePointA(wire_segment), DragMode::BoxSelection)
-            | (HitTestResult::WirePointB(wire_segment), DragMode::BoxSelection) => {
-                if !self.selection.contains_wire_segment(wire_segment) {
-                    self.selection = Selection::WireSegment(wire_segment);
-                    true
-                } else {
-                    false
-                }
-            }
-            (HitTestResult::ComponentAnchor(_), DragMode::DrawWire)
-            | (HitTestResult::WireSegment(_, _), DragMode::DrawWire)
-            | (HitTestResult::WirePointA(_), DragMode::DrawWire)
-            | (HitTestResult::WirePointB(_), DragMode::DrawWire) => false,
-        };
+        let mut sim_state = SimState::None;
+        std::mem::swap(&mut sim_state, &mut self.sim_state);
 
-        self.drag_state = DragState::Deadzone {
-            drag_start: logical_pos,
-            drag_delta: Vec2f::default(),
+        let requires_redraw = if let SimState::Active {
+            mut sim,
+            clock_state,
+        } = sim_state
+        {
+            match hit {
+                HitTestResult::Component(component) | HitTestResult::ComponentAnchor(component) => {
+                    let component = &mut self.components[component];
+                    match &mut component.kind {
+                        ComponentKind::Input {
+                            value,
+                            width,
+                            sim_wire,
+                            ..
+                        } if width.value.get() == 1 => {
+                            *value = !*value;
+                            sim.set_wire_drive(*sim_wire, &gsim::LogicState::from_int(*value))
+                                .unwrap();
+
+                            self.advance_simulation(sim, clock_state, max_steps);
+
+                            true
+                        }
+                        _ => {
+                            self.sim_state = SimState::Active { sim, clock_state };
+                            false
+                        }
+                    }
+                }
+                _ => {
+                    self.sim_state = SimState::Active { sim, clock_state };
+                    false
+                }
+            }
+        } else {
+            self.sim_state = sim_state;
+
+            self.drag_state = DragState::Deadzone {
+                drag_start: logical_pos,
+                drag_delta: Vec2f::default(),
+            };
+
+            match (hit, drag_mode) {
+                (HitTestResult::None, _) => {
+                    if !matches!(self.selection, Selection::None) {
+                        self.selection = Selection::None;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                (HitTestResult::Component(component), _)
+                | (HitTestResult::ComponentAnchor(component), DragMode::BoxSelection) => {
+                    if !self.selection.contains_component(component) {
+                        self.selection = Selection::Component(component);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                (HitTestResult::WireSegment(wire_segment, _), DragMode::BoxSelection)
+                | (HitTestResult::WirePointA(wire_segment), DragMode::BoxSelection)
+                | (HitTestResult::WirePointB(wire_segment), DragMode::BoxSelection) => {
+                    if !self.selection.contains_wire_segment(wire_segment) {
+                        self.selection = Selection::WireSegment(wire_segment);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                (HitTestResult::ComponentAnchor(_), DragMode::DrawWire)
+                | (HitTestResult::WireSegment(_, _), DragMode::DrawWire)
+                | (HitTestResult::WirePointA(_), DragMode::DrawWire)
+                | (HitTestResult::WirePointB(_), DragMode::DrawWire) => false,
+            }
         };
 
         self.primary_button_down = true;
@@ -1134,11 +1191,6 @@ impl Circuit {
         }
     }
 
-    #[inline]
-    pub fn is_simulating(&self) -> bool {
-        self.sim.is_some()
-    }
-
     fn find_wire_groups(&self) -> (Vec<Vec<usize>>, Vec<usize>) {
         fn segments_connect(a: &WireSegment, b: &WireSegment) -> bool {
             (a.endpoint_a == b.endpoint_a)
@@ -1191,7 +1243,77 @@ impl Circuit {
         (groups, group_map)
     }
 
-    pub fn start_simulation(&mut self, max_steps: u64) -> gsim::SimulationRunResult {
+    fn find_wire_group_widths(&self, groups: &[Vec<usize>]) -> Result<Vec<NonZeroU8>, ()> {
+        fn find_segment_width(
+            segment: &WireSegment,
+            components: &[Component],
+        ) -> Result<Option<NonZeroU8>, ()> {
+            let mut segment_width = None;
+            for anchor in components.iter().flat_map(Component::anchors) {
+                if (anchor.position == segment.endpoint_a)
+                    || (anchor.position == segment.endpoint_b)
+                {
+                    if let Some(segment_width) = segment_width {
+                        if anchor.width != segment_width {
+                            return Err(());
+                        }
+                    } else {
+                        segment_width = Some(anchor.width);
+                    }
+                }
+            }
+
+            Ok(segment_width)
+        }
+
+        groups
+            .iter()
+            .map(|group| {
+                let mut group_width = None;
+                for segment in group.iter().map(|&i| &self.wire_segments[i]) {
+                    let segment_width = find_segment_width(segment, &self.components)?;
+
+                    match (group_width, segment_width) {
+                        (_, None) => (),
+                        (None, Some(segment_width)) => group_width = Some(segment_width),
+                        (Some(group_width), Some(segment_width)) => {
+                            if segment_width != group_width {
+                                return Err(());
+                            }
+                        }
+                    }
+                }
+
+                Ok(group_width.unwrap_or(NonZeroU8::MIN))
+            })
+            .collect()
+    }
+
+    fn advance_simulation(&mut self, mut sim: gsim::Simulator, clock_state: bool, max_steps: u64) {
+        use gsim::*;
+
+        self.sim_state = match sim.run_sim(max_steps) {
+            SimulationRunResult::Ok => SimState::Active { sim, clock_state },
+            SimulationRunResult::MaxStepsReached => todo!(),
+            SimulationRunResult::Err(err) => {
+                let mut conflict_segments = HashSet::new();
+                for (i, segment) in self.wire_segments.iter().enumerate() {
+                    for sim_wire in &segment.sim_wires {
+                        if err.conflicts.contains(sim_wire) {
+                            conflict_segments.insert(i);
+                        }
+                    }
+                }
+
+                SimState::Conflict {
+                    sim,
+                    conflict_segments,
+                }
+            }
+        };
+    }
+
+    pub fn start_simulation(&mut self, max_steps: u64) {
         use gsim::*;
 
         let mut builder = SimulatorBuilder::default();
@@ -1202,10 +1324,183 @@ impl Circuit {
         //  2. Create wire(s) in simulation graph for each net
         //  3. Create component(s) in simulation graph for each editor component
 
+        // TODO: optimize all of this, because we are doing work multiple times
+
         // connected nets of wire segments
         let (groups, group_map) = self.find_wire_groups();
+        let Ok(group_widths) = self.find_wire_group_widths(&groups) else {
+            todo!() // TODO: display wire width conflict
+        };
+
         // TODO: find connected nets of wire segments _and_ splitters
-        // TODO: depending on splitter configuration, create one or more sim wires per group
+
+        // TODO: depending on splitter configuration, potentially create more than one sim wire per group
+        for (group, &group_width) in groups.iter().zip(group_widths.iter()) {
+            let sim_wire = builder.add_wire(group_width).unwrap();
+
+            for &i in group {
+                let segment = &mut self.wire_segments[i];
+                segment.sim_wires = smallvec![sim_wire];
+            }
+        }
+
+        // TODO: find some general solution to associate anchors with wires instead of hardcoding indices
+        // TODO: create dummy wires for unconnected anchors
+        for component in &mut self.components {
+            let anchors = component.anchors();
+
+            match &mut component.kind {
+                ComponentKind::Input {
+                    name,
+                    value,
+                    width,
+                    sim_wire,
+                } => {
+                    let mut wire = None;
+                    for segment in &self.wire_segments {
+                        if (segment.endpoint_a == anchors[0].position)
+                            || (segment.endpoint_b == anchors[0].position)
+                        {
+                            wire = Some(segment.sim_wires[0]);
+                            break;
+                        }
+                    }
+                    *sim_wire = wire.unwrap();
+                }
+                ComponentKind::ClockInput { name, sim_wire } => todo!(),
+                ComponentKind::Output {
+                    name,
+                    width,
+                    sim_wire,
+                } => {
+                    let mut wire = None;
+                    for segment in &self.wire_segments {
+                        if (segment.endpoint_a == anchors[0].position)
+                            || (segment.endpoint_b == anchors[0].position)
+                        {
+                            wire = Some(segment.sim_wires[0]);
+                            break;
+                        }
+                    }
+                    *sim_wire = wire.unwrap();
+                }
+                ComponentKind::Splitter { width, ranges } => todo!(),
+                ComponentKind::AndGate {
+                    width,
+                    sim_component,
+                } => {
+                    let mut wires = vec![];
+                    for anchor in anchors {
+                        for segment in &self.wire_segments {
+                            if (segment.endpoint_a == anchor.position)
+                                || (segment.endpoint_b == anchor.position)
+                            {
+                                wires.push(segment.sim_wires[0]);
+                                break;
+                            }
+                        }
+                    }
+
+                    let output = wires.pop().unwrap();
+                    *sim_component = builder.add_and_gate(&wires, output).unwrap();
+                }
+                ComponentKind::OrGate {
+                    width,
+                    sim_component,
+                } => {
+                    let mut wires = vec![];
+                    for anchor in anchors {
+                        for segment in &self.wire_segments {
+                            if (segment.endpoint_a == anchor.position)
+                                || (segment.endpoint_b == anchor.position)
+                            {
+                                wires.push(segment.sim_wires[0]);
+                                break;
+                            }
+                        }
+                    }
+
+                    let output = wires.pop().unwrap();
+                    *sim_component = builder.add_or_gate(&wires, output).unwrap();
+                }
+                ComponentKind::XorGate {
+                    width,
+                    sim_component,
+                } => {
+                    let mut wires = vec![];
+                    for anchor in anchors {
+                        for segment in &self.wire_segments {
+                            if (segment.endpoint_a == anchor.position)
+                                || (segment.endpoint_b == anchor.position)
+                            {
+                                wires.push(segment.sim_wires[0]);
+                                break;
+                            }
+                        }
+                    }
+
+                    let output = wires.pop().unwrap();
+                    *sim_component = builder.add_xor_gate(&wires, output).unwrap();
+                }
+                ComponentKind::NandGate {
+                    width,
+                    sim_component,
+                } => {
+                    let mut wires = vec![];
+                    for anchor in anchors {
+                        for segment in &self.wire_segments {
+                            if (segment.endpoint_a == anchor.position)
+                                || (segment.endpoint_b == anchor.position)
+                            {
+                                wires.push(segment.sim_wires[0]);
+                                break;
+                            }
+                        }
+                    }
+
+                    let output = wires.pop().unwrap();
+                    *sim_component = builder.add_nand_gate(&wires, output).unwrap();
+                }
+                ComponentKind::NorGate {
+                    width,
+                    sim_component,
+                } => {
+                    let mut wires = vec![];
+                    for anchor in anchors {
+                        for segment in &self.wire_segments {
+                            if (segment.endpoint_a == anchor.position)
+                                || (segment.endpoint_b == anchor.position)
+                            {
+                                wires.push(segment.sim_wires[0]);
+                                break;
+                            }
+                        }
+                    }
+
+                    let output = wires.pop().unwrap();
+                    *sim_component = builder.add_nor_gate(&wires, output).unwrap();
+                }
+                ComponentKind::XnorGate {
+                    width,
+                    sim_component,
+                } => {
+                    let mut wires = vec![];
+                    for anchor in anchors {
+                        for segment in &self.wire_segments {
+                            if (segment.endpoint_a == anchor.position)
+                                || (segment.endpoint_b == anchor.position)
+                            {
+                                wires.push(segment.sim_wires[0]);
+                                break;
+                            }
+                        }
+                    }
+
+                    let output = wires.pop().unwrap();
+                    *sim_component = builder.add_xnor_gate(&wires, output).unwrap();
+                }
+            }
+        }
 
         let clk_state = LogicState::LOGIC_0;
         for component in &self.components {
@@ -1223,38 +1518,37 @@ impl Circuit {
             }
         }
 
-        let mut sim = builder.build();
-        let result = sim.run_sim(max_steps);
-        if matches!(result, gsim::SimulationRunResult::Ok) {
-            self.sim = Some((sim, false));
-        }
-        result
+        let sim = builder.build();
+        self.advance_simulation(sim, false, max_steps);
     }
 
-    pub fn step_simulation(&mut self, max_steps: u64) -> gsim::SimulationRunResult {
+    pub fn step_simulation(&mut self, max_steps: u64) {
         use gsim::*;
 
-        let Some((sim, clk)) = &mut self.sim else {
+        let mut sim_state = SimState::None;
+        std::mem::swap(&mut sim_state, &mut self.sim_state);
+
+        let SimState::Active {
+            mut sim,
+            clock_state,
+        } = sim_state
+        else {
             panic!("simulation is not running");
         };
 
-        *clk = !*clk;
-        let clk_state = LogicState::from_bool(*clk);
+        let clock_state = !clock_state;
+        let clk = LogicState::from_bool(clock_state);
         for component in &self.components {
             if let ComponentKind::ClockInput { sim_wire, .. } = component.kind {
-                sim.set_wire_drive(sim_wire, &clk_state).unwrap();
+                sim.set_wire_drive(sim_wire, &clk).unwrap();
             }
         }
 
-        let result = sim.run_sim(max_steps);
-        if !matches!(result, gsim::SimulationRunResult::Ok) {
-            self.sim = None;
-        }
-        result
+        self.advance_simulation(sim, clock_state, max_steps);
     }
 
     pub fn stop_simulation(&mut self) {
-        self.sim = None;
+        self.sim_state = SimState::None;
 
         for component in &mut self.components {
             component.kind.reset_sim_ids();

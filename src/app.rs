@@ -1,3 +1,4 @@
+use crate::is_discriminant;
 use egui::*;
 use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
@@ -326,7 +327,7 @@ impl eframe::App for App {
                 if let Some(selected_circuit) = selected_circuit {
                     // TODO: use icon buttons
 
-                    if selected_circuit.is_simulating() {
+                    if !is_discriminant!(selected_circuit.sim_state(), SimState::None) {
                         if ui.button("stop sim").clicked() {
                             selected_circuit.stop_simulation();
                             self.requires_redraw = true;
@@ -338,7 +339,10 @@ impl eframe::App for App {
                     }
 
                     if ui
-                        .add_enabled(selected_circuit.is_simulating(), Button::new("step sim"))
+                        .add_enabled(
+                            is_discriminant!(selected_circuit.sim_state(), SimState::Active),
+                            Button::new("step sim"),
+                        )
                         .clicked()
                     {
                         // TODO: display error
@@ -619,8 +623,11 @@ impl eframe::App for App {
                         rel_pos -= response.rect.size() * 0.5;
 
                         if ui.input(|state| state.pointer.button_pressed(PointerButton::Primary)) {
-                            self.requires_redraw |=
-                                circuit.primary_button_pressed(rel_pos.into(), self.drag_mode);
+                            self.requires_redraw |= circuit.primary_button_pressed(
+                                rel_pos.into(),
+                                self.drag_mode,
+                                self.state.max_steps,
+                            );
                         } else if ui
                             .input(|state| state.pointer.button_pressed(PointerButton::Secondary))
                         {

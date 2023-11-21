@@ -10,7 +10,7 @@ use std::num::NonZeroU8;
 use super::NumericTextValue;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
+#[repr(u8)]
 pub enum AnchorKind {
     Input = 0,
     Output = 1,
@@ -22,14 +22,16 @@ pub enum AnchorKind {
 pub struct Anchor {
     pub position: Vec2i,
     pub kind: AnchorKind,
+    pub width: NonZeroU8,
 }
 
 macro_rules! anchors {
-    ($($kind:ident($x:literal, $y:literal)),* $(,)?) => {
+    ($($kind:ident($x:literal, $y:literal)[$width:expr]),* $(,)?) => {
         smallvec![$(
             Anchor {
                 position: Vec2i::new($x, $y),
                 kind: AnchorKind::$kind,
+                width: $width,
             },
         )*]
     };
@@ -161,29 +163,47 @@ impl ComponentKind {
 
     fn anchors(&self) -> SmallVec<[Anchor; 3]> {
         match self {
-            ComponentKind::Input { .. } | ComponentKind::ClockInput { .. } => {
-                anchors![Output(0, 1)]
+            ComponentKind::Input { width, .. } => {
+                anchors![Output(0, 1)[width.value]]
             }
-            ComponentKind::Output { .. } => anchors![Input(0, -1)],
-            ComponentKind::Splitter { ranges, .. } => {
-                let mut anchors = anchors![Passive(0, -1)];
-                for i in 0..ranges.len() {
+            ComponentKind::ClockInput { .. } => {
+                anchors![Output(0, 1)[NonZeroU8::MIN]]
+            }
+            ComponentKind::Output { width, .. } => anchors![Input(0, -1)[width.value]],
+            ComponentKind::Splitter { width, ranges, .. } => {
+                let mut anchors = anchors![Passive(0, -1)[width.value]];
+                for (i, &range) in ranges.iter().enumerate() {
+                    let width = (range.1)
+                        .checked_sub(range.0)
+                        .and_then(|w| w.checked_add(1))
+                        .and_then(NonZeroU8::new)
+                        .unwrap();
+
                     anchors.push(Anchor {
                         position: Vec2i::new((i * 2) as i32, 1),
                         kind: AnchorKind::Passive,
+                        width,
                     });
                 }
                 anchors
             }
-            ComponentKind::AndGate { .. }
-            | ComponentKind::OrGate { .. }
-            | ComponentKind::XorGate { .. } => {
-                anchors![Input(-1, -2), Input(1, -2), Output(0, 2)]
+            ComponentKind::AndGate { width, .. }
+            | ComponentKind::OrGate { width, .. }
+            | ComponentKind::XorGate { width, .. } => {
+                anchors![
+                    Input(-1, -2)[width.value],
+                    Input(1, -2)[width.value],
+                    Output(0, 2)[width.value]
+                ]
             }
-            ComponentKind::NandGate { .. }
-            | ComponentKind::NorGate { .. }
-            | ComponentKind::XnorGate { .. } => {
-                anchors![Input(-1, -2), Input(1, -2), Output(0, 3)]
+            ComponentKind::NandGate { width, .. }
+            | ComponentKind::NorGate { width, .. }
+            | ComponentKind::XnorGate { width, .. } => {
+                anchors![
+                    Input(-1, -2)[width.value],
+                    Input(1, -2)[width.value],
+                    Output(0, 3)[width.value]
+                ]
             }
         }
     }

@@ -259,7 +259,12 @@ fn draw_wires(builder: &mut vello::SceneBuilder, circuit: &Circuit) {
         let stroke_color = if circuit.selection().contains_wire_segment(i) {
             Color::rgb8(80, 80, 255)
         } else {
-            Color::BLUE
+            match circuit.sim_state() {
+                SimState::Conflict {
+                    conflict_segments, ..
+                } if conflict_segments.contains(&i) => Color::rgb8(192, 0, 0),
+                _ => Color::BLUE,
+            }
         };
 
         let mut path = BezPath::new();
@@ -336,10 +341,67 @@ fn draw_components(
             ComponentKind::XnorGate { .. } => &geometry.xnor_gate_geometry,
         };
 
+        let fill_color = match (circuit.sim_state(), &component.kind) {
+            (
+                SimState::Active { sim, .. },
+                ComponentKind::Input {
+                    width, sim_wire, ..
+                },
+            )
+            | (
+                SimState::Conflict { sim, .. },
+                ComponentKind::Input {
+                    width, sim_wire, ..
+                },
+            )
+            | (
+                SimState::Active { sim, .. },
+                ComponentKind::Output {
+                    width, sim_wire, ..
+                },
+            )
+            | (
+                SimState::Conflict { sim, .. },
+                ComponentKind::Output {
+                    width, sim_wire, ..
+                },
+            ) if width.value.get() == 1 => {
+                let state = sim.get_wire_state(*sim_wire).unwrap();
+                let bit_state = state.get_bit_state(0);
+                match bit_state {
+                    gsim::LogicBitState::HighZ => Color {
+                        r: 128,
+                        g: 128,
+                        b: 128,
+                        a: 255,
+                    },
+                    gsim::LogicBitState::Undefined => Color {
+                        r: 255,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    },
+                    gsim::LogicBitState::Logic0 => Color {
+                        r: 0,
+                        g: 64,
+                        b: 0,
+                        a: 255,
+                    },
+                    gsim::LogicBitState::Logic1 => Color {
+                        r: 0,
+                        g: 192,
+                        b: 0,
+                        a: 255,
+                    },
+                }
+            }
+            _ => colors.background_color,
+        };
+
         builder.fill(
             Fill::NonZero,
             transform,
-            colors.background_color,
+            fill_color,
             None,
             geometry.fill_path(),
         );
