@@ -747,7 +747,7 @@ impl Circuit {
     }
 
     pub fn mouse_moved(&mut self, delta: Vec2f, drag_mode: DragMode) -> bool {
-        const DEADZONE_RANGE: f32 = 1.0;
+        const DEADZONE_RANGE: f32 = 0.8;
 
         if self.primary_button_down && !self.secondary_button_down {
             match &mut self.drag_state {
@@ -761,9 +761,7 @@ impl Circuit {
                     let drag_start = *drag_start;
                     let drag_delta = *drag_delta;
 
-                    if (drag_delta.x.abs() >= DEADZONE_RANGE)
-                        || (drag_delta.y.abs() >= DEADZONE_RANGE)
-                    {
+                    if drag_delta.len() >= DEADZONE_RANGE {
                         let hit = self.hit_test(drag_start, None);
 
                         self.drag_state = match (hit, drag_mode) {
